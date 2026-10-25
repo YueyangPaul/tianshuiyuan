@@ -226,6 +226,20 @@ textarea.input{resize:vertical;min-height:64px}
 .ailabel{position:absolute;right:6px;bottom:6px;z-index:1;font-size:10px;line-height:16px;padding:0 6px;border-radius:6px;background:rgba(0,0,0,.45);color:#fff}
 .footlinks{display:flex;justify-content:center;gap:16px;margin-top:28px}
 .linkish{border:0;background:none;color:var(--muted);font-size:12.5px;text-decoration:underline;text-underline-offset:3px;padding:6px}
+/* 裁剪 */
+.crop{position:fixed;inset:0;z-index:80;background:#0d0e0b;color:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.crop .ctop{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
+.crop .ctop b{font-size:16px}
+.crop .stage{flex:1;position:relative;overflow:hidden;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.crop .stage canvas{position:absolute;left:50%;top:50%;max-width:none;pointer-events:none}
+.crop .frame{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:6px;box-shadow:0 0 0 100vmax rgba(0,0,0,.55);pointer-events:none}
+.crop .frame::before,.crop .frame::after{content:"";position:absolute;inset:33.33% 0;border-block:1px solid rgba(255,255,255,.35)}
+.crop .frame::after{inset:0 33.33%;border-block:0;border-inline:1px solid rgba(255,255,255,.35)}
+.crop .tools{padding:10px 16px 0;display:grid;gap:12px}
+.crop input[type=range]{width:100%;accent-color:var(--accent)}
+.crop .row .btn.ghost{background:#2a2c26;color:#fff}
+.crop .row .btn.ghost[aria-pressed=true]{background:#fff;color:#111}
+.crop .hint{font-size:12.5px;color:#a9ad9f;text-align:center}
 .skel{height:160px;border-radius:20px;background:var(--chip);margin-bottom:12px}
 @media (prefers-reduced-motion:no-preference){
   .sheet{animation:sheet .26s cubic-bezier(.2,.8,.3,1)}@keyframes sheet{from{transform:translateY(40px);opacity:0}}
@@ -299,6 +313,75 @@ const face = name => { const [bg, fg] = pick(FACE, name); return `<span class="f
 const faces = (names, max=6) => `<span class="faces">${names.slice(0,max).map(face).join("")}${names.length > max ? `<span class="face" style="background:var(--chip);color:var(--muted)">+${names.length-max}</span>` : ""}</span>`;
 let toastTimer;
 function toast(msg){ $("#toastRoot").innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toastTimer); toastTimer = setTimeout(()=>$("#toastRoot").innerHTML="", 2400); }
+// 裁剪/缩放：拖动移动、双指或滑杆缩放、可旋转；返回 JPEG dataURL，取消返回 null
+function loadImage(src){
+  return new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = () => rej(new Error("图片读不出来")); img.src = src; });
+}
+async function cropImage(source, { aspects = [4/3], out = 960, q = 0.78 } = {}){
+  const url = typeof source === "string" ? source : URL.createObjectURL(source);
+  let img; try { img = await loadImage(url); } finally { if (typeof source !== "string") URL.revokeObjectURL(url); }
+  const names = { [4/3]: "4:3", 1: "1:1", [3/4]: "3:4" };
+  const root = document.createElement("div"); root.className = "crop";
+  root.innerHTML = `<div class="ctop"><button type="button" class="btn ghost small" data-c="cancel">取消</button><b>调整照片</b><button type="button" class="btn small" data-c="ok">用这张</button></div>
+    <div class="stage"><canvas></canvas><div class="frame"></div></div>
+    <div class="tools"><input type="range" min="1" max="4" step="0.01" value="1" aria-label="缩放">
+      <div class="row" style="justify-content:center">${aspects.length > 1 ? aspects.map((a,i) => `<button type="button" class="btn ghost small" data-a="${i}">${names[a] || "原比例"}</button>`).join("") : ""}<button type="button" class="btn ghost small" data-c="rot">旋转 90°</button></div>
+      <div class="hint">拖动调整位置，双指或滑杆缩放</div></div>`;
+  document.body.appendChild(root);
+  const stage = root.querySelector(".stage"), cv = root.querySelector("canvas"), frame = root.querySelector(".frame"), zoom = root.querySelector("input");
+  let src, rot = 0, aspect = aspects[0], W, H, s0, z = 1, tx = 0, ty = 0;
+  const draw = () => {   // 先把旋转后的图画进一张源画布（最长边 2048 以内）
+    const k = Math.min(1, 2048 / Math.max(img.width, img.height)), w = Math.round(img.width*k), h = Math.round(img.height*k);
+    src = document.createElement("canvas"); const sw = rot % 180 ? h : w, sh = rot % 180 ? w : h;
+    src.width = sw; src.height = sh; const g = src.getContext("2d");
+    g.translate(sw/2, sh/2); g.rotate(rot * Math.PI/180); g.drawImage(img, -w/2, -h/2, w, h);
+    cv.width = sw; cv.height = sh; cv.getContext("2d").drawImage(src, 0, 0);
+  };
+  const layout = () => {
+    const r = stage.getBoundingClientRect(), a = aspect || src.width / src.height;
+    W = Math.min(r.width - 32, (r.height - 32) * a, 560); H = W / a;
+    frame.style.width = W + "px"; frame.style.height = H + "px";
+    s0 = Math.max(W / src.width, H / src.height); apply();
+  };
+  const apply = () => {
+    const s = s0 * z, mx = Math.max(0, (src.width*s - W)/2), my = Math.max(0, (src.height*s - H)/2);
+    tx = Math.max(-mx, Math.min(mx, tx)); ty = Math.max(-my, Math.min(my, ty));
+    cv.style.width = src.width*s + "px"; cv.style.height = src.height*s + "px";
+    cv.style.transform = `translate(-50%,-50%) translate(${tx}px,${ty}px)`; zoom.value = z;
+  };
+  const setZoom = nz => { nz = Math.max(1, Math.min(4, nz)); tx *= nz / z; ty *= nz / z; z = nz; apply(); };
+  const pts = new Map(); let pinch = null;
+  stage.addEventListener("pointerdown", e => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); pinch = null; });
+  stage.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return; const [px, py] = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pts.size === 1) { tx += e.clientX - px; ty += e.clientY - py; apply(); }
+    else { const [a, b] = [...pts.values()], d = Math.hypot(a[0]-b[0], a[1]-b[1]); if (pinch) setZoom(z * d / pinch); pinch = d; }
+  });
+  const up = e => { pts.delete(e.pointerId); pinch = null; };
+  stage.addEventListener("pointerup", up); stage.addEventListener("pointercancel", up);
+  stage.addEventListener("wheel", e => { e.preventDefault(); setZoom(z * (e.deltaY < 0 ? 1.08 : 1/1.08)); }, { passive: false });
+  zoom.oninput = () => setZoom(+zoom.value);
+  const pressA = () => root.querySelectorAll("[data-a]").forEach(b => b.setAttribute("aria-pressed", String(aspects[+b.dataset.a] === aspect)));
+  draw(); layout(); pressA();
+  const onResize = () => layout(); window.addEventListener("resize", onResize);
+  return new Promise(res => {
+    root.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.dataset.a) { aspect = aspects[+b.dataset.a]; pressA(); z = 1; tx = ty = 0; layout(); return; }
+      const c = b.dataset.c;
+      if (c === "rot") { rot = (rot + 90) % 360; z = 1; tx = ty = 0; draw(); layout(); return; }
+      let result = null;
+      if (c === "ok") {
+        const s = s0 * z, sw = W / s, sh = H / s, sx = src.width/2 - (W/2 + tx)/s, sy = src.height/2 - (H/2 + ty)/s;
+        const k = Math.min(1, out / Math.max(sw, sh) * Math.max(1, 1)), o = document.createElement("canvas");
+        o.width = Math.round(Math.min(out, sw >= sh ? out : out * sw / sh)); o.height = Math.round(o.width * sh / sw);
+        o.getContext("2d").drawImage(src, sx, sy, sw, sh, 0, 0, o.width, o.height);
+        result = o.toDataURL("image/jpeg", q);
+      }
+      window.removeEventListener("resize", onResize); root.remove(); quiet(400); res(result);
+    });
+  });
+}
 function fileToDataURL(file, max=720, q=0.72){
   return new Promise((res, rej) => {
     const img = new Image(), url = URL.createObjectURL(file);
@@ -489,7 +572,7 @@ function render(){
   $("#app").innerHTML = S.role === "host" ? hostHTML() : friendHTML();
   $("#barRoot").innerHTML = S.role === "friend" && S.friendTab === "order" ? barHTML() : "";
   $("#footLinks").innerHTML = S.mode !== "cloud" ? "" : S.isOwner ? `<button type="button" class="linkish" data-act="logout">退出主人登录</button>` : `<button type="button" class="linkish" data-act="login">主人登录</button>`;
-  if (keep) { const el = document.getElementById(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.e); } catch(e){} } }
+  if (keep && document.activeElement !== a) { const el = document.getElementById(keep.id); if (el) { el.focus({ preventScroll: true }); try { el.setSelectionRange(keep.s, keep.e); } catch(e){} } }
 }
 function bannerHTML(){
   if (S.mode === "local") return `<div class="banner"><b>演示模式</b>：还没连上数据库，数据只存在这台手机里，带“示例”的都是假数据。右上角可以在朋友页和主人后台之间切换。</div>`;
@@ -641,11 +724,21 @@ function photoGrid(m){
 }
 
 /* ---------- sheets ---------- */
-function openSheet(html, onMount){
-  $("#sheetRoot").innerHTML = `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+// form: true 的弹窗点背景不会关（编辑时误触、收键盘都会点到背景），只能点“取消”
+function openSheet(html, onMount, { form = false } = {}){
+  quiet(400);
+  $("#sheetRoot").innerHTML = `<div class="scrim" data-act="closeSheet"${form ? " data-form" : ""}><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
   onMount && onMount($("#sheetRoot .sheet"));
 }
 function closeSheet(){ $("#sheetRoot").innerHTML = ""; }
+// iOS 微信里，弹窗刚打开、选完照片、从相册切回来时，常有一下“幽灵点击”落在保存/删除上
+let quietUntil = 0;
+const quiet = (ms = 600) => { quietUntil = Math.max(quietUntil, Date.now() + ms); };
+document.addEventListener("click", e => {
+  if (Date.now() < quietUntil && e.target.closest("#sheetRoot button, #sheetRoot .btn")) { e.stopImmediatePropagation(); e.preventDefault(); }
+}, true);
+document.addEventListener("change", e => { if (e.target.type === "file") quiet(); }, true);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) quiet(); });
 
 function dishSheet(id){
   const d = id ? dishById(id) : { name:"", cat:"热菜", desc:"", active:true };
@@ -653,6 +746,7 @@ function dishSheet(id){
   openSheet(`<h2>${id ? "编辑菜品" : "新菜品"}</h2>
     <div class="field imgpick"><div id="dimgPrev">${id ? pic({ ...d, img }) : pic({ name: "", img })}</div>
       <div class="row"><label class="btn ghost small" for="dimg">${img ? "换一张" : "上传照片"}</label><input id="dimg" type="file" accept="image/*" hidden>
+      <button type="button" class="btn ghost small" id="dimgCrop" ${img ? "" : "hidden"}>裁剪</button>
       <button type="button" class="btn ghost small" id="dimgClear" ${img ? "" : "hidden"}>去掉照片</button><button type="button" class="btn ghost small" id="dimgAI" ${img || S.mode !== "cloud" ? "hidden" : ""}>换一张参考图</button></div></div>
     <div class="field"><label for="dname">菜名</label><input class="input" id="dname" maxlength="30" value="${esc(d.name)}"></div>
     <div class="field"><label for="dcat">分类</label><select class="input" id="dcat">${CATS.map(c => `<option ${c===d.cat?"selected":""}>${c}</option>`).join("")}</select></div>
@@ -663,7 +757,7 @@ function dishSheet(id){
       <div class="row"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="dsave">保存</button></div></div>`,
   sh => {
     const curName = () => sh.querySelector("#dname").value.trim() || d.name;
-    const prev = () => { sh.querySelector("#dimgPrev").innerHTML = pic({ name: curName(), img, ...(stock || {}) }); sh.querySelector("#dimgClear").hidden = !img; sh.querySelector("#dimgAI").hidden = !!img || S.mode !== "cloud"; };
+    const prev = () => { sh.querySelector("#dimgPrev").innerHTML = pic({ name: curName(), img, ...(stock || {}) }); sh.querySelector("#dimgClear").hidden = !img; sh.querySelector("#dimgCrop").hidden = !img; sh.querySelector("#dimgAI").hidden = !!img || S.mode !== "cloud"; };
     sh.querySelector("#dimgAI").onclick = async e => {
       const name = curName(); if (!name) { toast("先写菜名"); return; }
       const next = stock && stockFor === name ? (stock.stockSkip || 0) + 1 : 0;
@@ -672,11 +766,13 @@ function dishSheet(id){
       catch(err){ toast("找图失败，网络可能连不上维基百科"); }
       e.target.disabled = false;
     };
-    sh.querySelector("#dimg").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { img = await fileToDataURL(f); prev(); } catch(err){ toast(err.message); } };
+    sh.querySelector("#dimg").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; try { const c = await cropImage(f); if (c) { img = c; prev(); } } catch(err){ toast(err.message); } };
+    sh.querySelector("#dimgCrop").onclick = async () => { try { const c = await cropImage(img); if (c) { img = c; prev(); } } catch(err){ toast(err.message); } };
     sh.querySelector("#dimgClear").onclick = () => { img = ""; prev(); };
-    let armed = false;
+    let armed = 0;
     if (id) sh.querySelector("#ddel").onclick = async e => {
-      if (!armed) { armed = true; e.target.textContent = "再点一次确认删除"; return; }
+      // 第二下要隔开一会儿才算数，免得连点两下误删
+      if (!armed || Date.now() - armed < 700) { if (!armed) { armed = Date.now(); e.target.textContent = "再点一次确认删除"; } return; }
       await del("dishes", id); closeSheet(); toast("已删除");
     };
     sh.querySelector("#dsave").onclick = async () => {
@@ -684,11 +780,11 @@ function dishSheet(id){
       if (!name) { toast("菜名还没填"); return; }
       const rec = { name, cat: sh.querySelector("#dcat").value, desc: sh.querySelector("#ddesc").value.trim(), active: sh.querySelector("#dactive").checked, img, createdAt: d.createdAt || Date.now() };
       // 参考图跟着菜名走：改了菜名就重新找
-      if (stock && stockFor === name) Object.assign(rec, stock);
+      if (stock && stockFor === name && !img) Object.assign(rec, stock);
       const did = id || "d" + uid();
       try { await save("dishes", did, rec); closeSheet(); toast("已保存"); if (!img && !rec.stockImg && S.mode === "cloud") makePhoto(did); } catch(e){ toast("没存上：" + (e.message || e.code)); }
     };
-  });
+  }, { form: true });
 }
 function menuSheet(id){
   const m = id ? menuById(id) : { date: nextSat(), time: "18:30", title: `第 ${S.menus.length + 1} 期`, note: "", dishIds: S.dishes.filter(d => d.active !== false).map(d => d.id), status: "open" };
@@ -715,7 +811,7 @@ function menuSheet(id){
       try { await save("menus", mid, rec); S.hostMenuId = mid; S.hostTab = "current"; closeSheet(); render(); toast(id ? "已保存" : "新一期开好了，复制邀请发给朋友吧"); }
       catch(e){ toast("没存上：" + (e.message || e.code)); }
     };
-  });
+  }, { form: true });
 }
 function finalizeSheet(id){
   const m = menuById(id), t = tally(id);
@@ -735,7 +831,7 @@ function finalizeSheet(id){
       const rec = { ...m, finalItems: items, status: "done" }; delete rec.id;
       try { await save("menus", id, rec); closeSheet(); S.role = "friend"; S.friendTab = "history"; window.scrollTo(0,0); render(); toast("已存进往期回顾"); } catch(e){ toast("没存上：" + (e.message || e.code)); }
     };
-  });
+  }, { form: true });
 }
 function allPhotosSheet(id){
   const m = menuById(id);
@@ -754,7 +850,7 @@ function loginSheet(){
       if (error) { toast("邮箱或密码不对"); return; }
       setOwner(true); S.role = "host"; closeSheet(); window.scrollTo(0,0); render(); toast("欢迎回来"); backfillPhotos();
     };
-  });
+  }, { form: true });
 }
 function photoSheet(pid){
   const p = S.photos.find(x => x.id === pid); if (!p) return;
@@ -789,7 +885,11 @@ async function submitOrder(){
 async function uploadPhotos(menuId, files){
   let n = 0;
   for (const f of files) {
-    try { const img = await fileToDataURL(f, 1080, 0.7); await save("photos", "p" + uid(), { menuId, img, createdAt: Date.now() }); n++; }
+    try {
+      // 一次只选一张时可以先裁剪；多张直接传
+      let img;
+      if (files.length === 1) { img = await cropImage(f, { aspects: [0, 4/3, 1, 3/4], out: 1280, q: 0.72 }); if (!img) return; }
+      else img = await fileToDataURL(f, 1080, 0.7); await save("photos", "p" + uid(), { menuId, img, createdAt: Date.now() }); n++; }
     catch(e){ toast("有一张没传上：" + (e.message || e.code)); }
   }
   if (n) toast(`传好了 ${n} 张`);
@@ -801,7 +901,13 @@ function bump(){ const b = $("#bowl"); if (b) { b.classList.remove("pop"); void 
 document.addEventListener("click", async e => {
   const el = e.target.closest("[data-act]"); if (!el) return;
   const act = el.dataset.act;
-  if (act === "closeSheet") { if (el.classList.contains("scrim") && e.target !== el) return; closeSheet(); return; }
+  if (act === "closeSheet") {
+    if (el.classList.contains("scrim")) {
+      if (e.target !== el) return;
+      if (el.hasAttribute("data-form")) { if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur(); return; }
+    }
+    closeSheet(); return;
+  }
   if (act === "role") { S.role = el.dataset.v; window.scrollTo(0,0); render(); }
   else if (act === "friendTab") { S.friendTab = el.dataset.v; window.scrollTo(0,0); render(); }
   else if (act === "jump") { e.preventDefault(); const t = document.getElementById("cat-" + el.dataset.i); if (t) t.scrollIntoView({ behavior: "smooth" }); }
@@ -841,7 +947,7 @@ document.addEventListener("input", e => {
   else if (e.target.id === "cname") S.cName = e.target.value;
   else if (e.target.id === "ctaste") S.cTaste = e.target.value;
 });
-document.addEventListener("change", e => { if (e.target.classList.contains("photoInput") && e.target.files.length) uploadPhotos(e.target.dataset.menu, [...e.target.files]); });
+document.addEventListener("change", e => { if (e.target.classList.contains("photoInput") && e.target.files.length) { const fs = [...e.target.files]; e.target.value = ""; uploadPhotos(e.target.dataset.menu, fs); } });
 window.addEventListener("hashchange", () => { S.role = "friend"; S.friendTab = location.hash === "#history" ? "history" : "order"; render(); });
 boot();
 </script>
