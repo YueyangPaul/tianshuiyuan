@@ -4,7 +4,7 @@
 
 - 网页：纯静态，放在 GitHub Pages（`index.html` + `vendor/`）
 - 数据：Supabase（`setup.sql` 建表和权限），配置写在 `config.js`
-- 没上传照片的菜用 AI 生成示意图（pollinations.ai），主人登录后生成一次并存进数据库
+- 没上传照片的菜，主人登录后按菜名在中文维基百科找一张参考图，下载后存进数据库
 
 ## 首次设置
 

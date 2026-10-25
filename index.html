@@ -282,18 +282,14 @@ function nextSat(){ const t = new Date(); t.setDate(t.getDate() + ((6 - t.getDay
 const TINTS = ["--t1","--t2","--t3","--t4","--t5"];
 const FACE = [["#e4e9da","#2c4a22"],["#ffe8eb","#c8102e"],["#e3e6ee","#34406b"],["#efe7da","#7a5320"],["#dce6e4","#1f5a52"]];
 const pick = (arr, s) => arr[parseInt(hash(s || "?"), 36) % arr.length];
-// 没上传照片的菜用 AI 生成图：优先用已存进数据库的那张，没有就按菜名现生成
-function aiPrompt(d){ return d.aiPrompt || `${d.name}${d.desc ? "，" + d.desc : ""}`; }
-function aiURL(d){
-  const p = `Chinese home cooking dish: ${aiPrompt(d)}. Appetizing food photography, served on a ceramic plate on a wooden table, soft natural window light, close-up, no text, no people`;
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=640&height=480&nologo=true&seed=${d.aiSeed || 7}`;
-}
+// 没上传照片的菜，用主人登录时按菜名自动找到的网上照片（存进数据库，朋友看到的是同一张）
 function pic(d){
   const name = (d && d.name) || "菜";
   const tile = `<div class="ph" style="background:var(${pick(TINTS, name)})">${esc(name.slice(0,1))}</div>`;
   if (!d || !d.name) return `<div class="pic">${tile}</div>`;
   if (d.img) return `<div class="pic">${tile}<img src="${esc(d.img)}" alt="" loading="lazy"></div>`;
-  return `<div class="pic">${tile}<img src="${esc(d.aiImg || aiURL(d))}" alt="" loading="lazy" onload="this.nextElementSibling.hidden=false" onerror="this.remove()"><span class="ailabel" hidden>AI 示意</span></div>`;
+  if (d.stockImg) return `<div class="pic">${tile}<img src="${esc(d.stockImg)}" alt="" loading="lazy" onerror="this.remove()"><span class="ailabel">参考图</span></div>`;
+  return `<div class="pic">${tile}</div>`;
 }
 const face = name => { const [bg, fg] = pick(FACE, name); return `<span class="face" style="background:${bg};color:${fg}" title="${esc(name)}">${esc(String(name).replace(/^示例·/,"").slice(0,1))}</span>`; };
 const faces = (names, max=6) => `<span class="faces">${names.slice(0,max).map(face).join("")}${names.length > max ? `<span class="face" style="background:var(--chip);color:var(--muted)">+${names.length-max}</span>` : ""}</span>`;
@@ -425,38 +421,36 @@ async function startCloud(){
   const refresh = () => Cloud.pull().then(() => { if (S.loadError) { S.loadError = false; render(); } }).catch(() => {});
   setInterval(refresh, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
-  if (S.isOwner) backfillAI();
+  if (S.isOwner) backfillPhotos();
 }
 async function boot(){
   if (CFG.url && CFG.key && window.supabase) { try { await startCloud(); return; } catch(e){ S.mode = "loading"; } }
   startLocal();
 }
 
-/* ---------- AI 菜品图：主人这边生成一次，存进数据库 ---------- */
-async function englishName(d){
-  try {
-    const q = `Describe this Chinese dish in English for a food photo, max 18 words, reply with the description only: ${d.name}${d.desc ? "（" + d.desc + "）" : ""}`;
-    const r = await fetch("https://text.pollinations.ai/" + encodeURIComponent(q));
-    if (!r.ok) return "";
-    const t = (await r.text()).trim().replace(/^["']|["']$/g, "");
-    return t.length > 4 && t.length < 200 ? t : "";
-  } catch(e){ return ""; }
+/* ---------- 参考图：按菜名在中文维基百科找配图，主人这边下载一次存进数据库 ---------- */
+async function findPhoto(name, skip = 0){
+  const api = "https://zh.wikipedia.org/w/api.php?origin=*&format=json&formatversion=2&action=query&redirects=1"
+    + "&prop=pageimages&piprop=thumbnail&pithumbsize=720&generator=search&gsrlimit=10&gsrsearch=" + encodeURIComponent(name);
+  const j = await (await fetch(api)).json();
+  const pages = ((j.query && j.query.pages) || []).filter(p => p.thumbnail && !/\.(svg|png)/i.test(p.thumbnail.source)).sort((a,b) => a.index - b.index);
+  if (!pages.length) return null;
+  const p = pages[skip % pages.length];
+  const r = await fetch(p.thumbnail.source);
+  if (!r.ok) return null;
+  return { stockImg: await fileToDataURL(await r.blob(), 720, 0.78), stockFrom: p.title, stockSkip: skip };
 }
-async function makeAI(id){
-  let d = dishById(id); if (!d || d.img) return;
-  const patch = {};
-  if (!d.aiPrompt) { const en = await englishName(d); if (en) patch.aiPrompt = en; }
-  try {
-    const r = await fetch(aiURL({ ...d, ...patch }));
-    if (r.ok) patch.aiImg = await fileToDataURL(await r.blob(), 640, 0.75);
-  } catch(e){}
+async function makePhoto(id){
+  let d = dishById(id); if (!d || d.img || d.stockImg) return;
+  let found = null;
+  try { found = await findPhoto(d.name, d.stockSkip || 0); } catch(e){ return; }
   d = dishById(id);
-  if (d && !d.img && Object.keys(patch).length) await save("dishes", id, { ...d, ...patch });
+  if (found && d && !d.img) await save("dishes", id, { ...d, ...found });
 }
 let backfilling = false;
-async function backfillAI(){
-  if (backfilling) return; backfilling = true;
-  for (const d of S.dishes.filter(x => !x.img && !x.aiImg)) await makeAI(d.id);
+async function backfillPhotos(){
+  if (backfilling || S.mode !== "cloud") return; backfilling = true;
+  for (const d of S.dishes.filter(x => !x.img && !x.stockImg && !x.stockNone)) await makePhoto(d.id);
   backfilling = false;
 }
 
@@ -651,12 +645,11 @@ function closeSheet(){ $("#sheetRoot").innerHTML = ""; }
 
 function dishSheet(id){
   const d = id ? dishById(id) : { name:"", cat:"热菜", desc:"", active:true };
-  let img = d.img || "", aiSeed = d.aiSeed || 7;
-  const aiView = () => ({ ...d, name: (document.getElementById("dname") || {}).value || d.name, img, aiSeed, aiImg: aiSeed === (d.aiSeed || 7) ? d.aiImg : "" });
+  let img = d.img || "", stock = d.stockImg ? { stockImg: d.stockImg, stockFrom: d.stockFrom, stockSkip: d.stockSkip || 0 } : null, stockFor = d.name;
   openSheet(`<h2>${id ? "编辑菜品" : "新菜品"}</h2>
     <div class="field imgpick"><div id="dimgPrev">${id ? pic({ ...d, img }) : pic({ name: "", img })}</div>
       <div class="row"><label class="btn ghost small" for="dimg">${img ? "换一张" : "上传照片"}</label><input id="dimg" type="file" accept="image/*" hidden>
-      <button type="button" class="btn ghost small" id="dimgClear" ${img ? "" : "hidden"}>去掉照片</button><button type="button" class="btn ghost small" id="dimgAI" ${img ? "hidden" : ""}>换一张 AI 图</button></div></div>
+      <button type="button" class="btn ghost small" id="dimgClear" ${img ? "" : "hidden"}>去掉照片</button><button type="button" class="btn ghost small" id="dimgAI" ${img || S.mode !== "cloud" ? "hidden" : ""}>换一张参考图</button></div></div>
     <div class="field"><label for="dname">菜名</label><input class="input" id="dname" maxlength="30" value="${esc(d.name)}"></div>
     <div class="field"><label for="dcat">分类</label><select class="input" id="dcat">${CATS.map(c => `<option ${c===d.cat?"selected":""}>${c}</option>`).join("")}</select></div>
     <div class="field"><label for="ddesc">口味 / 介绍</label><textarea class="input" id="ddesc" maxlength="120">${esc(d.desc||"")}</textarea></div>
@@ -665,8 +658,16 @@ function dishSheet(id){
       ${id ? `<button type="button" class="btn danger small" id="ddel">删除</button>` : "<span></span>"}
       <div class="row"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="dsave">保存</button></div></div>`,
   sh => {
-    const prev = () => { sh.querySelector("#dimgPrev").innerHTML = pic(aiView()); sh.querySelector("#dimgClear").hidden = !img; sh.querySelector("#dimgAI").hidden = !!img; };
-    sh.querySelector("#dimgAI").onclick = () => { aiSeed += 1; prev(); toast("AI 正在画，几秒后出图"); };
+    const curName = () => sh.querySelector("#dname").value.trim() || d.name;
+    const prev = () => { sh.querySelector("#dimgPrev").innerHTML = pic({ name: curName(), img, ...(stock || {}) }); sh.querySelector("#dimgClear").hidden = !img; sh.querySelector("#dimgAI").hidden = !!img || S.mode !== "cloud"; };
+    sh.querySelector("#dimgAI").onclick = async e => {
+      const name = curName(); if (!name) { toast("先写菜名"); return; }
+      const next = stock && stockFor === name ? (stock.stockSkip || 0) + 1 : 0;
+      e.target.disabled = true; toast("在网上找图…");
+      try { const f = await findPhoto(name, next); if (f) { stock = f; stockFor = name; prev(); } else toast("没找到这道菜的图，可以自己上传一张"); }
+      catch(err){ toast("找图失败，网络可能连不上维基百科"); }
+      e.target.disabled = false;
+    };
     sh.querySelector("#dimg").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { img = await fileToDataURL(f); prev(); } catch(err){ toast(err.message); } };
     sh.querySelector("#dimgClear").onclick = () => { img = ""; prev(); };
     let armed = false;
@@ -677,11 +678,11 @@ function dishSheet(id){
     sh.querySelector("#dsave").onclick = async () => {
       const name = sh.querySelector("#dname").value.trim();
       if (!name) { toast("菜名还没填"); return; }
-      const rec = { name, cat: sh.querySelector("#dcat").value, desc: sh.querySelector("#ddesc").value.trim(), active: sh.querySelector("#dactive").checked, img, createdAt: d.createdAt || Date.now(), aiSeed };
-      // 菜名、介绍或种子变了，AI 图就重画
-      if (d.aiImg && name === d.name && rec.desc === (d.desc || "") && aiSeed === (d.aiSeed || 7)) { rec.aiImg = d.aiImg; if (d.aiPrompt) rec.aiPrompt = d.aiPrompt; }
+      const rec = { name, cat: sh.querySelector("#dcat").value, desc: sh.querySelector("#ddesc").value.trim(), active: sh.querySelector("#dactive").checked, img, createdAt: d.createdAt || Date.now() };
+      // 参考图跟着菜名走：改了菜名就重新找
+      if (stock && stockFor === name) Object.assign(rec, stock);
       const did = id || "d" + uid();
-      try { await save("dishes", did, rec); closeSheet(); toast("已保存"); if (!img && !rec.aiImg && S.mode === "cloud") makeAI(did); } catch(e){ toast("没存上：" + (e.message || e.code)); }
+      try { await save("dishes", did, rec); closeSheet(); toast("已保存"); if (!img && !rec.stockImg && S.mode === "cloud") makePhoto(did); } catch(e){ toast("没存上：" + (e.message || e.code)); }
     };
   });
 }
@@ -745,7 +746,7 @@ function loginSheet(){
     sh.querySelector("#ldo").onclick = async () => {
       const { error } = await Cloud.sb.auth.signInWithPassword({ email: sh.querySelector("#lemail").value.trim(), password: sh.querySelector("#lpass").value });
       if (error) { toast("邮箱或密码不对"); return; }
-      setOwner(true); S.role = "host"; closeSheet(); window.scrollTo(0,0); render(); toast("欢迎回来"); backfillAI();
+      setOwner(true); S.role = "host"; closeSheet(); window.scrollTo(0,0); render(); toast("欢迎回来"); backfillPhotos();
     };
   });
 }
@@ -821,7 +822,7 @@ document.addEventListener("click", async e => {
   else if (act === "customToLib") {
     const nid = "d" + uid();
     await save("dishes", nid, { name: el.dataset.name, cat: "热菜", desc: el.dataset.taste, active: true, img: "", createdAt: Date.now() });
-    if (S.mode === "cloud") makeAI(nid);
+    if (S.mode === "cloud") makePhoto(nid);
     toast(`“${el.dataset.name}”已收进菜单库，可以去补张照片`);
   }
   else if (act === "copyLink") {
