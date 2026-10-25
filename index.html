@@ -144,7 +144,7 @@ textarea.input{resize:vertical;min-height:64px}
 
 /* floating cart */
 /* 底部右下角有 Netlify 免费版强制的标志（约 60px 高），浮条和弹窗都要让开 */
-.bar{position:fixed;left:0;right:0;bottom:0;z-index:25;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));pointer-events:none}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:25;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));pointer-events:none}
 .bar .in{pointer-events:auto;max-width:528px;margin:0 auto;display:flex;align-items:center;gap:12px;justify-content:space-between;background:var(--ink);color:var(--bg);border-radius:999px;padding:7px 7px 7px 8px;box-shadow:var(--shadow)}
 .bowl{min-width:38px;height:38px;border-radius:999px;background:var(--bg);color:var(--ink);display:grid;place-items:center;font-family:var(--f-mono);font-weight:700;font-size:16px;flex-shrink:0;padding:0 8px}
 .bar .sum{display:flex;align-items:center;gap:10px;min-width:0;font-size:13.5px}
@@ -215,19 +215,24 @@ textarea.input{resize:vertical;min-height:64px}
 
 /* sheet */
 .scrim{position:fixed;inset:0;background:rgba(10,12,8,.4);z-index:40;display:flex;align-items:flex-end;justify-content:center}
-.sheet{position:relative;background:var(--paper);width:100%;max-width:560px;max-height:88%;overflow:auto;border-radius:20px 20px 0 0;padding-top:22px;padding-bottom:calc(84px + env(safe-area-inset-bottom,0px));padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+/* 弹窗 = 可滚动的内容 + 固定在底部的按钮栏；按钮栏下面留出 Netlify 标志的位置，滚到哪儿按钮都不会被挡 */
+.sheet{position:relative;background:var(--paper);width:100%;max-width:560px;max-height:90%;display:flex;flex-direction:column;overflow:hidden;border-radius:20px 20px 0 0}
+.sbody{flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-top:22px;padding-bottom:calc(84px + env(safe-area-inset-bottom,0px));padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+.sheet.hasfoot .sbody{padding-bottom:14px}
+.sfoot{flex-shrink:0;border-top:1px solid var(--line);background:var(--paper);padding-top:10px;padding-bottom:calc(74px + env(safe-area-inset-bottom,0px));padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+.sfoot > *{margin-top:0 !important}
 .sheet::before{content:"";position:absolute;left:50%;top:8px;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--line)}
 .sheet h2{font-size:22px;font-weight:900;margin-bottom:4px}
 .check{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
 .imgpick{display:flex;gap:12px;align-items:center}
 .imgpick .pic{width:92px;aspect-ratio:1;border-radius:14px;overflow:hidden}
-.toast{position:fixed;left:50%;bottom:calc(140px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13.5px;z-index:60;max-width:calc(100% - 32px);text-align:center}
+.toast{position:fixed;left:50%;bottom:calc(176px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13.5px;z-index:60;max-width:calc(100% - 32px);text-align:center}
 .ailabel{position:absolute;right:6px;bottom:6px;z-index:1;font-size:10px;line-height:16px;padding:0 6px;border-radius:6px;background:rgba(0,0,0,.45);color:#fff}
 .footlinks{display:flex;justify-content:center;gap:16px;margin-top:28px}
 .linkish{border:0;background:none;color:var(--muted);font-size:12.5px;text-decoration:underline;text-underline-offset:3px;padding:6px}
 /* 裁剪 */
-.crop{position:fixed;inset:0;z-index:80;background:#0d0e0b;color:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.crop{position:fixed;inset:0;z-index:80;background:#0d0e0b;color:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))}
 .crop .ctop{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
 .crop .ctop b{font-size:16px}
 .crop .stage{flex:1;position:relative;overflow:hidden;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
@@ -293,6 +298,7 @@ function hash(str){ let h = 2166136261; for (const ch of str){ h ^= ch.codePoint
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 const dt = d => new Date(d + "T12:00:00");
 function fmtDate(d){ if(!d) return ""; const t = dt(d); return `${t.getMonth()+1}月${t.getDate()}日 ${WEEK[t.getDay()]}`; }
+const yy = d => { const t = dt(d); return t.getFullYear() !== new Date().getFullYear() ? t.getFullYear() + "." : ""; };
 const mmdd = d => { const t = dt(d); return `${String(t.getMonth()+1).padStart(2,"0")}.${String(t.getDate()).padStart(2,"0")}`; };
 const weekday = d => WEEK[dt(d).getDay()];
 function daysTo(d){ const now = new Date(); now.setHours(12,0,0,0); return Math.round((dt(d) - now) / 864e5); }
@@ -674,13 +680,15 @@ function barHTML(){
 }
 function historyHTML(){
   const done = doneMenus();
-  if (!done.length) return `<div class="empty"><h2>还没有往期记录</h2><p>每吃完一顿，主人会把最终菜单和成品照片放在这里。</p></div>`;
-  return done.map(m => {
-    const ph = photosFor(m.id), people = ordersFor(m.id).map(o => o.name), shown = ph.slice(0,3);
+  const add = canManage() ? `<div class="spread" style="margin-bottom:12px"><span class="muted" style="font-size:13px">以前的聚餐也可以补进来</span><button type="button" class="btn small" data-act="addPast">＋ 补记一顿</button></div>` : "";
+  if (!done.length) return add + `<div class="empty"><h2>还没有往期记录</h2><p>每吃完一顿，主人会把最终菜单和成品照片放在这里。</p></div>`;
+  return add + done.map(m => {
+    const ph = photosFor(m.id), shown = ph.slice(0,3);
+    const people = [...new Set([...ordersFor(m.id).map(o => o.name), ...(m.guests || [])])];
     const top = shown.length ? `<div class="collage n${Math.min(shown.length,3)}">${shown.map(p => `<img src="${esc(imgSrc(p.img))}" alt="${esc(fmtDate(m.date))}的成品" data-act="viewPhoto" data-id="${p.id}">`).join("")}</div>`
       : `<div class="nophoto">${canManage() ? "还没传成品照片" : "这顿没留照片"}</div>`;
     return `<article class="entry">${top}<div class="body">
-      <div class="spread"><div class="stamp"><b>${mmdd(m.date)}</b><span>${weekday(m.date)} · 第 ${issueNo(m)} 期</span></div>${ph.length > 3 ? `<button type="button" class="btn ghost small" data-act="allPhotos" data-id="${m.id}">全部 ${ph.length} 张</button>` : ""}</div>
+      <div class="spread"><div class="stamp"><b>${yy(m.date)}${mmdd(m.date)}</b><span>${weekday(m.date)} · 第 ${issueNo(m)} 期${m.title && !/^第.*期$/.test(m.title) ? " · " + esc(m.title) : ""}</span></div>${ph.length > 3 ? `<button type="button" class="btn ghost small" data-act="allPhotos" data-id="${m.id}">全部 ${ph.length} 张</button>` : ""}</div>
       <div class="dishes">${(m.finalItems||[]).map(f => `<span>${esc(f.name)}</span>`).join("") || `<span>没记录菜单</span>`}</div>
       ${people.length ? `<div class="guests">${faces(people)}<span>${people.length} 位朋友一起吃的</span></div>` : ""}
       ${canManage() ? `<div class="row end" style="margin-top:12px"><label class="btn ghost small" for="up-${m.id}">＋ 传照片</label><input id="up-${m.id}" type="file" accept="image/*" multiple hidden data-menu="${m.id}" class="photoInput"><button type="button" class="btn ghost small" data-act="finalize" data-id="${m.id}">改记录</button></div>` : ""}
@@ -744,8 +752,11 @@ function photoGrid(m){
 // form: true 的弹窗点背景不会关（编辑时误触、收键盘都会点到背景），只能点“取消”
 function openSheet(html, onMount, { form = false } = {}){
   quiet(400);
-  $("#sheetRoot").innerHTML = `<div class="scrim" data-act="closeSheet"${form ? " data-form" : ""}><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
-  onMount && onMount($("#sheetRoot .sheet"));
+  $("#sheetRoot").innerHTML = `<div class="scrim" data-act="closeSheet"${form ? " data-form" : ""}><div class="sheet" role="dialog" aria-modal="true"><div class="sbody">${html}</div></div></div>`;
+  const sh = $("#sheetRoot .sheet"), body = sh.firstElementChild, last = body.lastElementChild;
+  // 最后一排按钮挪到固定的底栏里
+  if (last && last.querySelector("button")) { const f = document.createElement("div"); f.className = "sfoot"; f.appendChild(last); sh.appendChild(f); sh.classList.add("hasfoot"); }
+  onMount && onMount(sh);
 }
 function closeSheet(){ $("#sheetRoot").innerHTML = ""; }
 // 保存类按钮：点一下就锁住并显示“保存中…”，网慢时多点几下也只存一次
@@ -848,14 +859,45 @@ function finalizeSheet(id){
   openSheet(`<h2>${mmdd(m.date)} 这顿吃了啥</h2><p class="muted" style="margin:0 0 6px">勾上真正做了的菜，再传几张成品照片。保存后朋友们能在“往期回顾”里看到。</p>
     ${cands.map((c,i) => `<label class="check"><input type="checkbox" class="fin" data-i="${i}" ${(fresh ? c.n > 0 : had.has(c.name)) ? "checked" : ""}> ${esc(c.name)} ${c.custom ? '<span class="tag">许愿</span>' : ""}${c.n ? `<span class="muted num" style="margin-left:auto;font-size:13px">${c.n} 人点</span>` : ""}</label>`).join("")}
     <div class="field" style="margin-top:10px"><label for="fextra">临时加的菜（用顿号隔开）</label><input class="input" id="fextra" placeholder="比如：拍黄瓜、可乐鸡翅"></div>
+    <div class="field"><label for="fguests">${ordersFor(id).length ? "没点单但也来了的朋友" : "谁来了"}（用顿号隔开）</label><input class="input" id="fguests" value="${esc((m.guests || []).join("、"))}" placeholder="比如：小王、阿杰"></div>
     <b>成品照片</b>${photoGrid(m)}
     <div class="row end" style="margin-top:14px"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="fsave">保存到往期</button></div>`,
   sh => {
     lock(sh.querySelector("#fsave"), async () => {
       const items = [...sh.querySelectorAll(".fin:checked")].map(c => { const x = cands[+c.dataset.i]; return x.dishId ? { name: x.name, dishId: x.dishId } : { name: x.name }; });
       sh.querySelector("#fextra").value.split(/[、,，\s]+/).map(s => s.trim()).filter(Boolean).forEach(name => items.push({ name }));
-      const rec = { ...m, finalItems: items, status: "done" }; delete rec.id;
+      const guests = sh.querySelector("#fguests").value.split(/[、,，;；\s]+/).map(s => s.trim()).filter(Boolean);
+      const rec = { ...m, finalItems: items, guests, status: "done" }; delete rec.id;
       try { await save("menus", id, rec); closeSheet(); S.role = "friend"; S.friendTab = "history"; window.scrollTo(0,0); render(); toast("已存进往期回顾"); } catch(e){ toast("没存上：" + (e.message || e.code)); }
+    });
+  }, { form: true });
+}
+// 补记以前的聚餐：直接存成已定稿的一期，再接着传照片
+function pastSheet(){
+  const lib = [...S.dishes].sort((a,b) => (a.active === false) - (b.active === false));
+  openSheet(`<h2>补记一顿</h2><p class="muted" style="margin:0 0 6px">把以前的聚餐加进往期回顾。存好后可以接着传照片。</p>
+    <div class="field"><label for="pdate">哪天吃的</label><input class="input" type="date" id="pdate" max="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="field"><label for="ptitle">备注（可不填）</label><input class="input" id="ptitle" maxlength="30" placeholder="比如：火锅局、小李生日"></div>
+    <div class="field"><label for="pguests">谁来了（用顿号隔开，可不填）</label><input class="input" id="pguests" placeholder="比如：小王、阿杰、Lily"></div>
+    <b>吃了哪些菜</b>
+    ${lib.map(d => `<label class="check"><input type="checkbox" class="pdish" value="${d.id}"> ${esc(d.name)} <span class="tag">${esc(d.cat||"")}</span></label>`).join("") || `<p class="muted" style="margin:6px 0">菜单库里还没有菜，直接在下面写也行。</p>`}
+    <div class="field" style="margin-top:10px"><label for="pextra">菜单库里没有的菜（用顿号隔开）</label><input class="input" id="pextra" placeholder="比如：拍黄瓜、可乐鸡翅"></div>
+    <div class="row end"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="psave">存好，去传照片</button></div>`,
+  sh => {
+    const split = v => v.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean);
+    lock(sh.querySelector("#psave"), async () => {
+      const date = sh.querySelector("#pdate").value;
+      if (!date) { toast("选一下日期"); sh.querySelector("#pdate").focus(); return; }
+      const picked = [...sh.querySelectorAll(".pdish:checked")].map(c => dishById(c.value)).filter(Boolean);
+      const items = [...picked.map(d => ({ name: d.name, dishId: d.id })), ...split(sh.querySelector("#pextra").value).map(name => ({ name }))];
+      if (!items.length) { toast("至少记一道菜"); return; }
+      let mid = "m" + date.replace(/-/g, ""), n = 1;
+      while (menuById(mid + (n > 1 ? "-" + n : ""))) n++;
+      mid += n > 1 ? "-" + n : "";
+      const rec = { date, time: "", title: sh.querySelector("#ptitle").value.trim(), note: "", dishIds: picked.map(d => d.id), status: "done",
+        finalItems: items, guests: split(sh.querySelector("#pguests").value), past: true, createdAt: Date.now() };
+      try { await save("menus", mid, rec); S.role = "friend"; S.friendTab = "history"; render(); allPhotosSheet(mid); toast("记好了，传几张照片吧"); }
+      catch(e){ toast("没存上：" + (e.message || e.code)); }
     });
   }, { form: true });
 }
@@ -867,8 +909,8 @@ function loginSheet(){
   openSheet(`<h2>主人登录</h2><p class="muted" style="margin:0">用你在 Supabase 里建的邮箱和密码。</p>
     <div class="field"><label for="lemail">邮箱</label><input class="input" id="lemail" type="email" autocomplete="username"></div>
     <div class="field"><label for="lpass">密码</label><input class="input" id="lpass" type="password" autocomplete="current-password"></div>
-    <button type="button" class="btn" id="ldo" style="width:100%;margin-top:6px;padding-block:12px">登录</button>
-    <div style="text-align:center;margin-top:4px"><button type="button" class="linkish" data-act="closeSheet">取消</button></div>`,
+    <div><button type="button" class="btn" id="ldo" style="width:100%;padding-block:12px">登录</button>
+    <div style="text-align:center;margin-top:2px"><button type="button" class="linkish" data-act="closeSheet">取消</button></div></div>`,
   sh => {
     sh.querySelector("#lpass").onkeydown = e => { if (e.key === "Enter") sh.querySelector("#ldo").click(); };
     lock(sh.querySelector("#ldo"), async () => {
@@ -967,6 +1009,7 @@ async function handleAct(act, el, e){
   else if (act === "editMenu") menuSheet(el.dataset.id);
   else if (act === "toggleOpen") { const m = menuById(el.dataset.id), rec = { ...m, status: m.status === "open" ? "closed" : "open" }; delete rec.id; await save("menus", m.id, rec); }
   else if (act === "finalize") finalizeSheet(el.dataset.id);
+  else if (act === "addPast") pastSheet();
   else if (act === "editDish") dishSheet(el.dataset.id);
   else if (act === "viewPhoto") photoSheet(el.dataset.id);
   else if (act === "allPhotos") allPhotosSheet(el.dataset.id);
