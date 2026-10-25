@@ -56,3 +56,18 @@ insert into public.docs (col, id, data) values
  ('dishes', 'dz7', '{"name":"玉米排骨汤","cat":"汤羹","desc":"慢炖两小时，清甜","active":true,"img":"","createdAt":6,"aiPrompt":"clear pork rib soup with corn chunks and carrot in a ceramic pot"}'),
  ('dishes', 'dz9', '{"name":"杨枝甘露","cat":"甜品","desc":"芒果西柚，冰的","active":true,"img":"","createdAt":7,"aiPrompt":"mango pomelo sago dessert in a glass bowl"}')
 on conflict (col, id) do nothing;
+
+-- 回收站：任何一行被软删除（data 变成 {_deleted:true}）之前，先把原来的内容存一份，误删可以找回
+create table if not exists public.docs_trash (
+  col text not null, id text not null, data jsonb, deleted_at timestamptz not null default now()
+);
+alter table public.docs_trash enable row level security;   -- 不开放给网页读写，只能用后台/service_role 恢复
+create or replace function public.docs_keep_trash() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce((new.data->>'_deleted')::boolean, false) and not coalesce((old.data->>'_deleted')::boolean, false) then
+    insert into public.docs_trash(col, id, data) values (old.col, old.id, old.data);
+  end if;
+  return new;
+end $$;
+drop trigger if exists docs_keep_trash on public.docs;
+create trigger docs_keep_trash before update on public.docs for each row execute function public.docs_keep_trash();

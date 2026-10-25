@@ -764,7 +764,7 @@ function lock(btn, fn, label = "保存中…"){
   btn.onclick = async e => {
     if (btn.dataset.busy) return;
     const t = btn.textContent; btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = label;
-    try { await fn(e); } finally { delete btn.dataset.busy; btn.disabled = false; btn.textContent = t; }
+    try { await fn(e); } finally { delete btn.dataset.busy; btn.disabled = false; if (btn.textContent === label) btn.textContent = t; }
   };
 }
 // iOS 微信里，弹窗刚打开、选完照片、从相册切回来时，常有一下“幽灵点击”落在保存/删除上
@@ -806,12 +806,7 @@ function dishSheet(id){
     sh.querySelector("#dimg").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; try { const c = await cropImage(f); if (c) { img = c; prev(); } } catch(err){ toast(err.message); } };
     sh.querySelector("#dimgCrop").onclick = async () => { try { const c = await cropImage(img); if (c) { img = c; prev(); } } catch(err){ toast(err.message); } };
     sh.querySelector("#dimgClear").onclick = () => { img = ""; prev(); };
-    let armed = 0;
-    if (id) sh.querySelector("#ddel").onclick = async e => {
-      // 第二下要隔开一会儿才算数，免得连点两下误删
-      if (!armed || Date.now() - armed < 700) { if (!armed) { armed = Date.now(); e.target.textContent = "再点一次确认删除"; } return; }
-      await del("dishes", id); closeSheet(); toast("已删除");
-    };
+    if (id) armDelete(sh.querySelector("#ddel"), async () => { await del("dishes", id); closeSheet(); toast("已删除"); });
     lock(sh.querySelector("#dsave"), async () => {
       const name = sh.querySelector("#dname").value.trim();
       if (!name) { toast("菜名还没填"); return; }
@@ -827,14 +822,18 @@ function menuSheet(id){
   const m = id ? menuById(id) : { date: nextSat(), time: "18:30", title: `第 ${S.menus.length + 1} 期`, note: "", dishIds: S.dishes.filter(d => d.active !== false).map(d => d.id), status: "open" };
   const pool = S.dishes.filter(d => d.active !== false || (m.dishIds||[]).includes(d.id));
   openSheet(`<h2>${id ? "修改这一期" : "开一期新菜单"}</h2>
-    <div class="row"><div class="field" style="flex:1;min-width:140px"><label for="mdate">吃饭日期</label><input class="input" type="date" id="mdate" value="${esc(m.date)}" ${id?"disabled":""}></div>
+    <div class="row"><div class="field" style="flex:1;min-width:140px"><label for="mdate">吃饭日期</label><input class="input" type="date" id="mdate" value="${esc(m.date)}"></div>
       <div class="field" style="width:110px"><label for="mtime">开饭时间</label><input class="input" type="time" id="mtime" value="${esc(m.time||"")}"></div></div>
     <div class="field"><label for="mtitle">标题</label><input class="input" id="mtitle" maxlength="30" value="${esc(m.title||"")}"></div>
     <div class="field"><label for="mnote">给朋友的话</label><input class="input" id="mnote" maxlength="80" placeholder="比如：这周有大闸蟹，可以多点" value="${esc(m.note||"")}"></div>
     <div class="spread"><b>这一期能点的菜</b><button type="button" class="btn ghost small" id="mall">全选</button></div>
     ${pool.map(d => `<label class="check"><input type="checkbox" class="mdish" value="${d.id}" ${(m.dishIds||[]).includes(d.id)?"checked":""}> ${esc(d.name)} <span class="tag">${esc(d.cat||"")}</span></label>`).join("") || `<p class="muted">菜单库还是空的，先去“菜单库”加几道菜。</p>`}
-    <div class="row end" style="margin-top:12px"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="msave">${id?"保存":"生成并去分享"}</button></div>`,
+    <div class="row spread" style="margin-top:12px">${id ? `<button type="button" class="btn danger small" id="mdel">删除这一期</button>` : "<span></span>"}<div class="row"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="msave">${id?"保存":"生成并去分享"}</button></div></div>`,
   sh => {
+    const mdel = sh.querySelector("#mdel");
+    if (mdel) armDelete(mdel, async () => {
+      try { await deleteMenu(id); closeSheet(); render(); toast("这一期删掉了，朋友们的点单也一起删了"); } catch(e){ toast("没删掉：" + (e.message || e.code)); }
+    });
     sh.querySelector("#mall").onclick = () => sh.querySelectorAll(".mdish").forEach(c => c.checked = true);
     lock(sh.querySelector("#msave"), async () => {
       const date = sh.querySelector("#mdate").value;
@@ -856,21 +855,48 @@ function finalizeSheet(id){
   const fresh = !m.finalItems;
   const cands = [...t.dishes.map(d => ({ name: d.name, dishId: d.dishId, n: d.people.length })), ...t.customs.map(c => ({ name: c.name, n: 0, custom: true }))];
   for (const f of m.finalItems || []) if (!cands.some(c => c.name === f.name)) cands.push({ name: f.name, dishId: f.dishId, n: 0 });
-  openSheet(`<h2>${mmdd(m.date)} 这顿吃了啥</h2><p class="muted" style="margin:0 0 6px">勾上真正做了的菜，再传几张成品照片。保存后朋友们能在“往期回顾”里看到。</p>
+  const custom = m.title && !/^第.*期$/.test(m.title) ? m.title : "";
+  openSheet(`<h2>${m.status === "done" ? "改这条记录" : mmdd(m.date) + " 这顿吃了啥"}</h2><p class="muted" style="margin:0 0 6px">勾上真正做了的菜，再传几张成品照片。保存后朋友们能在“往期回顾”里看到。</p>
+    <div class="row"><div class="field" style="flex:1;min-width:150px"><label for="fdate">日期</label><input class="input" type="date" id="fdate" value="${esc(m.date)}"></div>
+      <div class="field" style="flex:1;min-width:150px"><label for="ftitle">标题（可不填）</label><input class="input" id="ftitle" maxlength="30" value="${esc(custom)}" placeholder="比如：火锅局"></div></div>
+    <b>吃了哪些菜</b>
     ${cands.map((c,i) => `<label class="check"><input type="checkbox" class="fin" data-i="${i}" ${(fresh ? c.n > 0 : had.has(c.name)) ? "checked" : ""}> ${esc(c.name)} ${c.custom ? '<span class="tag">许愿</span>' : ""}${c.n ? `<span class="muted num" style="margin-left:auto;font-size:13px">${c.n} 人点</span>` : ""}</label>`).join("")}
     <div class="field" style="margin-top:10px"><label for="fextra">临时加的菜（用顿号隔开）</label><input class="input" id="fextra" placeholder="比如：拍黄瓜、可乐鸡翅"></div>
     <div class="field"><label for="fguests">${ordersFor(id).length ? "没点单但也来了的朋友" : "谁来了"}（用顿号隔开）</label><input class="input" id="fguests" value="${esc((m.guests || []).join("、"))}" placeholder="比如：小王、阿杰"></div>
     <b>成品照片</b>${photoGrid(m)}
-    <div class="row end" style="margin-top:14px"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="fsave">保存到往期</button></div>`,
+    <div class="row spread" style="margin-top:14px">${m.status === "done" ? `<button type="button" class="btn danger small" id="fdel">删除这条</button>` : "<span></span>"}<div class="row"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="fsave">${m.status === "done" ? "保存" : "保存到往期"}</button></div></div>`,
   sh => {
+    const fdel = sh.querySelector("#fdel");
+    if (fdel) armDelete(fdel, async () => {
+      try { await deleteMenu(id); closeSheet(); render(); toast("这条记录删掉了"); } catch(e){ toast("没删掉：" + (e.message || e.code)); }
+    });
     lock(sh.querySelector("#fsave"), async () => {
+      const date = sh.querySelector("#fdate").value;
+      if (!date) { toast("日期不能空着"); return; }
       const items = [...sh.querySelectorAll(".fin:checked")].map(c => { const x = cands[+c.dataset.i]; return x.dishId ? { name: x.name, dishId: x.dishId } : { name: x.name }; });
       sh.querySelector("#fextra").value.split(/[、,，\s]+/).map(s => s.trim()).filter(Boolean).forEach(name => items.push({ name }));
       const guests = sh.querySelector("#fguests").value.split(/[、,，;；\s]+/).map(s => s.trim()).filter(Boolean);
-      const rec = { ...m, finalItems: items, guests, status: "done" }; delete rec.id;
+      const title = sh.querySelector("#ftitle").value.trim();
+      const rec = { ...m, date, title: title || (custom ? "" : m.title || ""), finalItems: items, guests, status: "done" }; delete rec.id;
       try { await save("menus", id, rec); closeSheet(); S.role = "friend"; S.friendTab = "history"; window.scrollTo(0,0); render(); toast("已存进往期回顾"); } catch(e){ toast("没存上：" + (e.message || e.code)); }
     });
   }, { form: true });
+}
+// 删除按钮：第一下变成“再点一次确认删除”，隔一会儿再点才真删
+function armDelete(btn, fn){
+  let armed = 0;
+  lock(btn, async () => {
+    if (!armed) { armed = Date.now(); setTimeout(() => { btn.textContent = "再点一次确认删除"; }, 0); return; }
+    if (Date.now() - armed < 700) return;
+    await fn();
+  }, "删除中…");
+}
+// 删掉一期：连同这一期的点单和照片一起删
+async function deleteMenu(id){
+  for (const p of photosFor(id)) await del("photos", p.id);
+  for (const o of ordersFor(id)) await del("orders", o.id);
+  await del("menus", id);
+  if (S.hostMenuId === id) S.hostMenuId = null;
 }
 // 补记以前的聚餐：直接存成已定稿的一期，再接着传照片
 function pastSheet(){
