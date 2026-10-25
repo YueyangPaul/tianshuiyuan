@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网络测试</title>
+<style>body{font:15px -apple-system,"PingFang SC",sans-serif;margin:0;padding:20px 16px;background:#f4f5ef;color:#16180f}h1{font-size:20px;margin:0 0 4px}p{color:#6a6e61;margin:0 0 14px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}td{padding:10px 12px;border-top:1px solid #e2e4da;font-size:14px}td:last-child{text-align:right;font-family:ui-monospace,monospace;white-space:nowrap}.ok{color:#2c7a3a}.bad{color:#ff2442}</style></head>
+<body><h1>网络测试</h1><p>请关掉 VPN 打开本页，等全部跑完后截图发回。</p><table id="t"></table>
+<script>
+const targets = [
+  ["Supabase 数据库", "https://clqqhpjwsbtfnyedlvjt.supabase.co/rest/v1/"],
+  ["GitHub API", "https://api.github.com/"],
+  ["Netlify", "https://netlify.app/"],
+  ["Cloudflare Pages", "https://pages.dev/"],
+  ["Cloudflare Workers", "https://workers.dev/"],
+  ["腾讯 EdgeOne", "https://pages.edgeone.ai/"],
+  ["Zeabur", "https://zeabur.app/"],
+  ["Deno Deploy", "https://deno.dev/"],
+  ["Vercel", "https://vercel.app/"],
+  ["维基百科", "https://zh.wikipedia.org/"],
+];
+const t = document.getElementById("t");
+targets.forEach(([name, url]) => {
+  const tr = document.createElement("tr"); tr.innerHTML = `<td>${name}</td><td>测试中…</td>`; t.appendChild(tr);
+  const t0 = performance.now(), ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+  fetch(url + "?_=" + Date.now(), { mode: "no-cors", cache: "no-store", signal: ctl.signal })
+    .then(() => { tr.lastChild.className = "ok"; tr.lastChild.textContent = "通 " + Math.round(performance.now() - t0) + "ms"; })
+    .catch(e => { tr.lastChild.className = "bad"; tr.lastChild.textContent = e.name === "AbortError" ? "超时" : "不通"; })
+    .finally(() => clearTimeout(timer));
+});
+</script></body></html>
