@@ -301,12 +301,28 @@ const TINTS = ["--t1","--t2","--t3","--t4","--t5"];
 const FACE = [["#e4e9da","#2c4a22"],["#ffe8eb","#c8102e"],["#e3e6ee","#34406b"],["#efe7da","#7a5320"],["#dce6e4","#1f5a52"]];
 const pick = (arr, s) => arr[parseInt(hash(s || "?"), 36) % arr.length];
 // 没上传照片的菜，用主人登录时按菜名自动找到的网上照片（存进数据库，朋友看到的是同一张）
+// 照片以 dataURL 存在表里，每次重绘都塞进 HTML 会让手机卡住（点击排队、过一会儿一起触发）。
+// 转成 blob 地址只做一次，之后重绘只是短链接，浏览器也能复用解码好的图。
+const blobURLs = new Map();
+function imgSrc(u){
+  if (!u || !u.startsWith("data:")) return u;
+  let b = blobURLs.get(u);
+  if (!b) {
+    try {
+      const k = u.indexOf(","), bin = atob(u.slice(k + 1)), arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      b = URL.createObjectURL(new Blob([arr], { type: u.slice(5, k).split(";")[0] || "image/jpeg" }));
+    } catch(e){ b = u; }
+    blobURLs.set(u, b);
+  }
+  return b;
+}
 function pic(d){
   const name = (d && d.name) || "菜";
   const tile = `<div class="ph" style="background:var(${pick(TINTS, name)})">${esc(name.slice(0,1))}</div>`;
   if (!d || !d.name) return `<div class="pic">${tile}</div>`;
-  if (d.img) return `<div class="pic">${tile}<img src="${esc(d.img)}" alt="" loading="lazy"></div>`;
-  if (d.stockImg) return `<div class="pic">${tile}<img src="${esc(d.stockImg)}" alt="" loading="lazy" onerror="this.remove()"><span class="ailabel">参考图</span></div>`;
+  if (d.img) return `<div class="pic">${tile}<img src="${esc(imgSrc(d.img))}" alt="" loading="lazy"></div>`;
+  if (d.stockImg) return `<div class="pic">${tile}<img src="${esc(imgSrc(d.stockImg))}" alt="" loading="lazy" onerror="this.remove()"><span class="ailabel">参考图</span></div>`;
   return `<div class="pic">${tile}</div>`;
 }
 const face = name => { const [bg, fg] = pick(FACE, name); return `<span class="face" style="background:${bg};color:${fg}" title="${esc(name)}">${esc(String(name).replace(/^示例·/,"").slice(0,1))}</span>`; };
@@ -378,7 +394,7 @@ async function cropImage(source, { aspects = [4/3], out = 960, q = 0.78 } = {}){
         o.getContext("2d").drawImage(src, sx, sy, sw, sh, 0, 0, o.width, o.height);
         result = o.toDataURL("image/jpeg", q);
       }
-      window.removeEventListener("resize", onResize); root.remove(); quiet(400); res(result);
+      window.removeEventListener("resize", onResize); root.remove(); res(result);
     });
   });
 }
@@ -467,9 +483,10 @@ const Cloud = {
   },
   async set(col, id, v){
     const body = { ...v }; delete body.id;
-    const { data, error } = await this.sb.from("docs").upsert({ col, id, data: body }).select("col,id,data,updated_at");
+    // 只取回时间戳，不把整张照片再下载一遍
+    const { data, error } = await this.sb.from("docs").upsert({ col, id, data: body }).select("col,id,updated_at");
     if (error) throw error;
-    this.apply(data);
+    this.apply((data || []).map(r => ({ ...r, data: body })));
   },
   remove(col, id){ return this.set(col, id, { _deleted: true }); },
 };
@@ -660,7 +677,7 @@ function historyHTML(){
   if (!done.length) return `<div class="empty"><h2>还没有往期记录</h2><p>每吃完一顿，主人会把最终菜单和成品照片放在这里。</p></div>`;
   return done.map(m => {
     const ph = photosFor(m.id), people = ordersFor(m.id).map(o => o.name), shown = ph.slice(0,3);
-    const top = shown.length ? `<div class="collage n${Math.min(shown.length,3)}">${shown.map(p => `<img src="${esc(p.img)}" alt="${esc(fmtDate(m.date))}的成品" data-act="viewPhoto" data-id="${p.id}">`).join("")}</div>`
+    const top = shown.length ? `<div class="collage n${Math.min(shown.length,3)}">${shown.map(p => `<img src="${esc(imgSrc(p.img))}" alt="${esc(fmtDate(m.date))}的成品" data-act="viewPhoto" data-id="${p.id}">`).join("")}</div>`
       : `<div class="nophoto">${canManage() ? "还没传成品照片" : "这顿没留照片"}</div>`;
     return `<article class="entry">${top}<div class="body">
       <div class="spread"><div class="stamp"><b>${mmdd(m.date)}</b><span>${weekday(m.date)} · 第 ${issueNo(m)} 期</span></div>${ph.length > 3 ? `<button type="button" class="btn ghost small" data-act="allPhotos" data-id="${m.id}">全部 ${ph.length} 张</button>` : ""}</div>
@@ -719,7 +736,7 @@ function hostLibrary(){
       <button type="button" class="btn ghost small" data-act="editDish" data-id="${d.id}">编辑</button></div>`).join("") : `<div class="empty"><h2>菜单库是空的</h2><p>先把拿手菜加进来，配张照片更有食欲。</p></div>`}</section>`;
 }
 function photoGrid(m){
-  return `<div class="photos">${photosFor(m.id).map(p => `<img src="${esc(p.img)}" alt="成品照片" data-act="viewPhoto" data-id="${p.id}">`).join("")}
+  return `<div class="photos">${photosFor(m.id).map(p => `<img src="${esc(imgSrc(p.img))}" alt="成品照片" data-act="viewPhoto" data-id="${p.id}">`).join("")}
     ${canManage() ? `<label class="upload" for="sup-${m.id}">＋ 成品照片<input id="sup-${m.id}" type="file" accept="image/*" multiple hidden data-menu="${m.id}" class="photoInput"></label>` : ""}</div>`;
 }
 
@@ -731,6 +748,14 @@ function openSheet(html, onMount, { form = false } = {}){
   onMount && onMount($("#sheetRoot .sheet"));
 }
 function closeSheet(){ $("#sheetRoot").innerHTML = ""; }
+// 保存类按钮：点一下就锁住并显示“保存中…”，网慢时多点几下也只存一次
+function lock(btn, fn, label = "保存中…"){
+  btn.onclick = async e => {
+    if (btn.dataset.busy) return;
+    const t = btn.textContent; btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = label;
+    try { await fn(e); } finally { delete btn.dataset.busy; btn.disabled = false; btn.textContent = t; }
+  };
+}
 // iOS 微信里，弹窗刚打开、选完照片、从相册切回来时，常有一下“幽灵点击”落在保存/删除上
 let quietUntil = 0;
 const quiet = (ms = 600) => { quietUntil = Math.max(quietUntil, Date.now() + ms); };
@@ -742,6 +767,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) quie
 
 function dishSheet(id){
   const d = id ? dishById(id) : { name:"", cat:"热菜", desc:"", active:true };
+  const newId = "d" + uid();   // 新菜的 id 在打开弹窗时就定下，重复保存也只会写同一行
   let img = d.img || "", stock = d.stockImg ? { stockImg: d.stockImg, stockFrom: d.stockFrom, stockSkip: d.stockSkip || 0 } : null, stockFor = d.name;
   openSheet(`<h2>${id ? "编辑菜品" : "新菜品"}</h2>
     <div class="field imgpick"><div id="dimgPrev">${id ? pic({ ...d, img }) : pic({ name: "", img })}</div>
@@ -775,15 +801,15 @@ function dishSheet(id){
       if (!armed || Date.now() - armed < 700) { if (!armed) { armed = Date.now(); e.target.textContent = "再点一次确认删除"; } return; }
       await del("dishes", id); closeSheet(); toast("已删除");
     };
-    sh.querySelector("#dsave").onclick = async () => {
+    lock(sh.querySelector("#dsave"), async () => {
       const name = sh.querySelector("#dname").value.trim();
       if (!name) { toast("菜名还没填"); return; }
       const rec = { name, cat: sh.querySelector("#dcat").value, desc: sh.querySelector("#ddesc").value.trim(), active: sh.querySelector("#dactive").checked, img, createdAt: d.createdAt || Date.now() };
       // 参考图跟着菜名走：改了菜名就重新找
       if (stock && stockFor === name && !img) Object.assign(rec, stock);
-      const did = id || "d" + uid();
+      const did = id || newId;
       try { await save("dishes", did, rec); closeSheet(); toast("已保存"); if (!img && !rec.stockImg && S.mode === "cloud") makePhoto(did); } catch(e){ toast("没存上：" + (e.message || e.code)); }
-    };
+    });
   }, { form: true });
 }
 function menuSheet(id){
@@ -799,7 +825,7 @@ function menuSheet(id){
     <div class="row end" style="margin-top:12px"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="msave">${id?"保存":"生成并去分享"}</button></div>`,
   sh => {
     sh.querySelector("#mall").onclick = () => sh.querySelectorAll(".mdish").forEach(c => c.checked = true);
-    sh.querySelector("#msave").onclick = async () => {
+    lock(sh.querySelector("#msave"), async () => {
       const date = sh.querySelector("#mdate").value;
       if (!date) { toast("选个日期"); return; }
       let mid = id || "m" + date.replace(/-/g, "");
@@ -810,7 +836,7 @@ function menuSheet(id){
       if (!rec.dishIds.length) { toast("至少选一道菜"); return; }
       try { await save("menus", mid, rec); S.hostMenuId = mid; S.hostTab = "current"; closeSheet(); render(); toast(id ? "已保存" : "新一期开好了，复制邀请发给朋友吧"); }
       catch(e){ toast("没存上：" + (e.message || e.code)); }
-    };
+    });
   }, { form: true });
 }
 function finalizeSheet(id){
@@ -825,12 +851,12 @@ function finalizeSheet(id){
     <b>成品照片</b>${photoGrid(m)}
     <div class="row end" style="margin-top:14px"><button type="button" class="btn ghost" data-act="closeSheet">取消</button><button type="button" class="btn" id="fsave">保存到往期</button></div>`,
   sh => {
-    sh.querySelector("#fsave").onclick = async () => {
+    lock(sh.querySelector("#fsave"), async () => {
       const items = [...sh.querySelectorAll(".fin:checked")].map(c => { const x = cands[+c.dataset.i]; return x.dishId ? { name: x.name, dishId: x.dishId } : { name: x.name }; });
       sh.querySelector("#fextra").value.split(/[、,，\s]+/).map(s => s.trim()).filter(Boolean).forEach(name => items.push({ name }));
       const rec = { ...m, finalItems: items, status: "done" }; delete rec.id;
       try { await save("menus", id, rec); closeSheet(); S.role = "friend"; S.friendTab = "history"; window.scrollTo(0,0); render(); toast("已存进往期回顾"); } catch(e){ toast("没存上：" + (e.message || e.code)); }
-    };
+    });
   }, { form: true });
 }
 function allPhotosSheet(id){
@@ -845,16 +871,16 @@ function loginSheet(){
     <div style="text-align:center;margin-top:4px"><button type="button" class="linkish" data-act="closeSheet">取消</button></div>`,
   sh => {
     sh.querySelector("#lpass").onkeydown = e => { if (e.key === "Enter") sh.querySelector("#ldo").click(); };
-    sh.querySelector("#ldo").onclick = async () => {
+    lock(sh.querySelector("#ldo"), async () => {
       const { error } = await Cloud.sb.auth.signInWithPassword({ email: sh.querySelector("#lemail").value.trim(), password: sh.querySelector("#lpass").value });
       if (error) { toast("邮箱或密码不对"); return; }
       setOwner(true); S.role = "host"; closeSheet(); window.scrollTo(0,0); render(); toast("欢迎回来"); backfillPhotos();
-    };
+    }, "登录中…");
   }, { form: true });
 }
 function photoSheet(pid){
   const p = S.photos.find(x => x.id === pid); if (!p) return;
-  openSheet(`<img src="${esc(p.img)}" alt="成品照片" style="width:100%;border-radius:16px;display:block">
+  openSheet(`<img src="${esc(imgSrc(p.img))}" alt="成品照片" style="width:100%;border-radius:16px;display:block">
     <div class="row spread" style="margin-top:12px">${canManage() ? `<button type="button" class="btn danger small" id="pdel">删除这张</button>` : "<span></span>"}<button type="button" class="btn ghost" data-act="closeSheet">关闭</button></div>`,
   sh => { let armed = false; const b = sh.querySelector("#pdel"); if (b) b.onclick = async () => { if (!armed) { armed = true; b.textContent = "再点一次确认"; return; } await del("photos", pid); closeSheet(); }; });
 }
@@ -870,6 +896,7 @@ async function submitOrder(){
   const oid = prevId || (m.id + "_" + hash(name));
   const old = S.orders.find(o => o.id === oid);
   const rec = { menuId: m.id, name, items, customs: S.customs, createdAt: old ? old.createdAt : Date.now(), updatedAt: Date.now() };
+  const sb = $("[data-act=submit]"); if (sb) sb.textContent = "提交中…";
   try {
     await save("orders", oid, rec);
     ls.set("tsy-order-" + m.id, oid); ls.set("tsy-name", name);
@@ -898,9 +925,21 @@ async function uploadPhotos(menuId, files){
 }
 function bump(){ const b = $("#bowl"); if (b) { b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop"); } }
 
+const inflight = new Set();
 document.addEventListener("click", async e => {
   const el = e.target.closest("[data-act]"); if (!el) return;
   const act = el.dataset.act;
+  // 会写数据库的操作：同一个还没存完时，再点直接忽略
+  if (["submit","toggleOpen","customToLib","logout"].includes(act)) {
+    const key = act + ":" + (el.dataset.id || el.dataset.name || "");
+    if (inflight.has(key)) return;
+    inflight.add(key); el.disabled = true;
+    try { await handleAct(act, el, e); } finally { inflight.delete(key); el.disabled = false; }
+    return;
+  }
+  await handleAct(act, el, e);
+});
+async function handleAct(act, el, e){
   if (act === "closeSheet") {
     if (el.classList.contains("scrim")) {
       if (e.target !== el) return;
@@ -919,7 +958,7 @@ document.addEventListener("click", async e => {
     S.customs.push({ name, taste }); S.cName = S.cTaste = ""; render(); bump(); toast("已加入，选好了点下面提交");
   }
   else if (act === "rmCustom") { S.customs.splice(+el.dataset.i, 1); render(); }
-  else if (act === "submit") submitOrder();
+  else if (act === "submit") await submitOrder();
   else if (act === "login") loginSheet();
   else if (act === "logout") { await Cloud.sb.auth.signOut(); setOwner(false); render(); toast("已退出"); }
   else if (act === "hostTab") { S.hostTab = el.dataset.v; render(); }
@@ -941,7 +980,7 @@ document.addEventListener("click", async e => {
     const m = menuById(el.dataset.id);
     copy(`甜水园食堂 ${fmtDate(m.date)}${m.time ? " " + m.time : ""} 开饭，来点菜：${shareURL(m)}`);
   }
-});
+}
 document.addEventListener("input", e => {
   if (e.target.id === "fname") S.friendName = e.target.value;
   else if (e.target.id === "cname") S.cName = e.target.value;
