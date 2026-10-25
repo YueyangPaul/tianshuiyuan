@@ -2,7 +2,7 @@
 
 每周家宴点菜网页：朋友点菜、写自定义菜和口味；主人维护菜单库、按日期开一期、看谁点了什么、记录往期成品照片。
 
-- 网页：纯静态，放在 GitHub Pages（`index.html` + `vendor/`）
+- 网页：纯静态，放在 Netlify（https://tianshuiyuan.netlify.app），`_redirects` 把 `/sb/*` 转发到 Supabase，国内不开 VPN 也能用；GitHub Pages 的旧地址会自动跳转过去
 - 数据：Supabase（`setup.sql` 建表和权限），配置写在 `config.js`
 - 没上传照片的菜，主人登录后按菜名在中文维基百科找一张参考图，下载后存进数据库
 
