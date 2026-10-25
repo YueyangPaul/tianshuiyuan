@@ -247,10 +247,8 @@ textarea.input{resize:vertical;min-height:64px}
 <div id="toastRoot"></div>
 
 <script>if (/github\.io$/.test(location.hostname)) location.replace("https://tianshuiyuan.netlify.app/" + location.hash);</script>
-<script src="vendor/supabase.js"></script>
-</body>
-</html>
-<script src="config.js"></script>
+<script src="vendor/supabase.js?v=2"></script>
+<script src="config.js?v=3"></script>
 <script>
 const SHARE_BASE = location.origin + location.pathname;
 const CFG = window.TSY_CONFIG || {};
@@ -416,7 +414,7 @@ async function startCloud(){
   S.mode = "cloud"; S.canWrite = true;
   setOwner(!!(data && data.session));
   sb.auth.onAuthStateChange((_e, session) => { if (!!session !== S.isOwner) { setOwner(!!session); render(); } });
-  try { await Cloud.pull(); } catch(e){ S.loadError = true; }
+  try { await Cloud.pull(); } catch(e){ S.loadError = (e && (e.message || e.code)) || String(e); }
   subscribeAll();
   if (CFG.realtime !== false) sb.channel("docs").on("postgres_changes", { event: "*", schema: "public", table: "docs" }, p => { if (p.new && p.new.col) Cloud.apply([p.new]); }).subscribe();
   const refresh = () => Cloud.pull().then(() => { if (S.loadError) { S.loadError = false; render(); } }).catch(() => {});
@@ -490,7 +488,7 @@ function render(){
 }
 function bannerHTML(){
   if (S.mode === "local") return `<div class="banner"><b>演示模式</b>：还没连上数据库，数据只存在这台手机里，带“示例”的都是假数据。右上角可以在朋友页和主人后台之间切换。</div>`;
-  if (S.loadError) return `<div class="banner"><b>连不上服务器</b>：检查一下网络，稍后会自动重试。</div>`;
+  if (S.loadError) return `<div class="banner"><b>连不上服务器</b>：检查一下网络，稍后会自动重试。<br><small class="mono">${esc(String(S.loadError).slice(0,160))} · ${esc(CFG.url || "")}</small></div>`;
   return "";
 }
 
