@@ -417,9 +417,9 @@ async function startCloud(){
   sb.auth.onAuthStateChange((_e, session) => { if (!!session !== S.isOwner) { setOwner(!!session); render(); } });
   try { await Cloud.pull(); } catch(e){ S.loadError = true; }
   subscribeAll();
-  sb.channel("docs").on("postgres_changes", { event: "*", schema: "public", table: "docs" }, p => { if (p.new && p.new.col) Cloud.apply([p.new]); }).subscribe();
+  if (CFG.realtime !== false) sb.channel("docs").on("postgres_changes", { event: "*", schema: "public", table: "docs" }, p => { if (p.new && p.new.col) Cloud.apply([p.new]); }).subscribe();
   const refresh = () => Cloud.pull().then(() => { if (S.loadError) { S.loadError = false; render(); } }).catch(() => {});
-  setInterval(refresh, 30000);
+  setInterval(refresh, CFG.realtime === false ? 15000 : 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   if (S.isOwner) backfillPhotos();
 }

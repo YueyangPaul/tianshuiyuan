@@ -1,0 +1,2 @@
+# 国内直连不了 Supabase：由 Netlify 在海外代为转发数据库请求
+/sb/*  https://clqqhpjwsbtfnyedlvjt.supabase.co/:splat  200
