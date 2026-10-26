@@ -1,4 +1,4 @@
--- 甜水园食堂：在 Supabase 的 SQL Editor 里整段粘贴运行一次即可。
+-- 甜水园小饭桌：在 Supabase 的 SQL Editor 里整段粘贴运行一次即可。
 
 -- 1) 所有数据放在一张表里：col 是类别（菜品 / 每期菜单 / 点单 / 成品照片），data 是内容
 create table if not exists public.docs (
