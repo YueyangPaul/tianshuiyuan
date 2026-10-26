@@ -294,7 +294,7 @@ const CATS = ["凉菜","热菜","汤羹","主食","甜品","饮品"];
 const WEEK = ["周日","周一","周二","周三","周四","周五","周六"];
 const LOCAL_KEY = "tsy-demo-v1";
 
-function tabFromHash(){ return location.hash === "#history" ? "history" : location.hash === "#book" ? "book" : "order"; }
+function tabFromHash(){ return { "#history": "history", "#book": "book", "#menu": "menu" }[location.hash] || "order"; }
 const S = {
   mode: "loading", isOwner: false, canWrite: false, loadError: false,
   dishes: [], menus: [], orders: [], photos: [], bookings: [], slots: [],
@@ -638,7 +638,7 @@ function render(){
   document.querySelectorAll('#roleSeg button').forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === S.role)));
   $("#banner").innerHTML = bannerHTML();
   $("#app").innerHTML = S.role === "host" ? hostHTML() : friendHTML();
-  $("#barRoot").innerHTML = S.role === "friend" && S.friendTab === "order" ? barHTML() : "";
+  $("#barRoot").innerHTML = S.role === "friend" && (S.friendTab === "order" || S.friendTab === "menu") ? barHTML() : "";
   const pend = pendingBookings().length, hb = $('#roleSeg [data-v=host]');
   if (hb) hb.innerHTML = `主人后台${pend ? `<span class="dot">${pend}</span>` : ""}`;
   $("#footLinks").innerHTML = S.mode !== "cloud" ? "" : S.isOwner ? `<button type="button" class="linkish" data-act="logout">退出主人登录</button>` : `<button type="button" class="linkish" data-act="login">主人登录</button>`;
@@ -666,12 +666,12 @@ function loadCartFor(menu){
   if (o) { for (const it of o.items || []) S.cart[it.dishId] = it.qty; S.customs = [...(o.customs || [])]; }
 }
 function friendHTML(){
-  const n = doneMenus().length;
+  const n = doneMenus().length, cur = currentFriendMenu(), live = cur && cur.status === "open";
   const sw = `<div class="switch" role="tablist">
-      <button type="button" role="tab" data-act="friendTab" data-v="order" aria-selected="${S.friendTab==="order"}">本周点菜</button>
+      <button type="button" role="tab" data-act="friendTab" data-v="${live ? "order" : "menu"}" aria-selected="${S.friendTab==="order" || S.friendTab==="menu"}">${live ? "本周点菜" : "菜单"}</button>
       <button type="button" role="tab" data-act="friendTab" data-v="book" aria-selected="${S.friendTab==="book"}">约饭</button>
       <button type="button" role="tab" data-act="friendTab" data-v="history" aria-selected="${S.friendTab==="history"}">往期回顾${n ? `<span class="ct num">${n}</span>` : ""}</button></div>`;
-  return sw + (S.friendTab === "history" ? historyHTML() : S.friendTab === "book" ? bookHTML() : orderHTML());
+  return sw + (S.friendTab === "history" ? historyHTML() : S.friendTab === "book" ? bookHTML() : S.friendTab === "menu" ? libraryHTML() : orderHTML());
 }
 function coverHTML(m){
   const d = daysTo(m.date), os = ordersFor(m.id);
@@ -689,7 +689,7 @@ function coverHTML(m){
 }
 function orderHTML(){
   const m = currentFriendMenu();
-  if (!m) return `<div class="empty"><h2>这周还没开菜单</h2><p>等主人发来新一期的链接就能点菜了。<br>先去“往期回顾”看看之前吃了啥。</p></div>`;
+  if (!m) return libraryHTML();
   loadCartFor(m);
   const t = tally(m.id), countBy = new Map(t.dishes.map(x => [x.dishId, x.people.length]));
   const dishes = (m.dishIds || []).map(dishById).filter(d => d && d.active !== false);
@@ -718,7 +718,26 @@ function orderHTML(){
     </section>`;
   return html;
 }
+// 还没定饭局时也能分享的整份菜单（#menu），底部引导去约饭
+function libraryHTML(){
+  const m = currentFriendMenu(), live = m && m.status === "open";
+  const dishes = S.dishes.filter(d => d.active !== false);
+  const groups = [...CATS, "其他"].map(c => [c, dishes.filter(d => c === "其他" ? !CATS.includes(d.cat) : d.cat === c)]).filter(([,l]) => l.length);
+  let html = `<section class="cover"><div class="eyebrow"><span class="pill">甜水园小饭桌 · 菜单</span></div>
+    <h1>想吃什么，<br>挑个周末来</h1><p class="lede">主人的拿手菜，一共 <b class="num">${dishes.length}</b> 道。看中了就约个周末，开饭前还能再点菜。</p></section>`;
+  if (live) html += `<section class="card spread" style="margin-top:14px"><span><b>${mmdd(m.date)} ${weekday(m.date)}</b> 的点菜已经开了</span><a class="btn small" href="#${m.id}" style="text-decoration:none">去点菜</a></section>`;
+  if (!dishes.length) return html + `<div class="empty"><h2>菜单还在准备</h2><p>主人还没把菜加进来，先去“往期回顾”看看之前吃了啥。</p></div>`;
+  if (groups.length > 1) html += `<nav class="cats">${groups.map(([c],i) => `<a href="#cat-${i}" data-act="jump" data-i="${i}">${esc(c)}</a>`).join("")}</nav>`;
+  groups.forEach(([cat, list], i) => {
+    html += `<h2 class="cat" id="cat-${i}">${esc(cat)}<small>${list.length} 道</small></h2><div class="grid">`;
+    for (const d of list) html += `<article class="dish">${pic(d)}<div class="body"><h3>${esc(d.name)}</h3>${d.desc ? `<p>${esc(d.desc)}</p>` : ""}</div></article>`;
+    html += `</div>`;
+  });
+  return html;
+}
 function barHTML(){
+  if (S.friendTab === "menu" || !currentFriendMenu())
+    return `<div class="bar"><div class="in"><div class="sum"><span class="bowl">约</span><span>喜欢就约个周末来吃</span></div><a class="btn" href="#book" style="text-decoration:none">去预约</a></div></div>`;
   const m = currentFriendMenu();
   if (!m || m.status !== "open") return "";
   const n = Object.values(S.cart).reduce((a,b) => a+b, 0) + S.customs.length;
@@ -793,7 +812,7 @@ function bookSheet(date){
   }, { form: true });
 }
 function hostSlots(){
-  let html = `<p class="muted" style="margin:0 0 10px;font-size:13px">周六默认开放，周日默认不开。点右边的按钮开关某一天；同一个周末只能约一场。朋友在朋友页的“约饭”里预约。</p><section class="card">`;
+  let html = `<div class="row end" style="margin-bottom:8px"><button type="button" class="btn ghost small" data-act="copyMenuLink">分享菜单</button><button type="button" class="btn small" data-act="copyBookLink">分享约饭链接</button></div><p class="muted" style="margin:0 0 10px;font-size:13px">周六默认开放，周日默认不开。点右边的按钮开关某一天；同一个周末只能约一场。朋友在朋友页的“约饭”里预约。</p><section class="card">`;
   for (const date of weekendDates()) {
     const open = slotOpen(date), bs = S.bookings.filter(b => b.date === date && b.status !== "cancelled"), menu = menuOn(date);
     html += `<div class="slot ${open ? "" : "off"}"><div class="d"><b>${mmdd(date)}</b><span>${weekday(date)}</span></div>
@@ -869,7 +888,7 @@ function hostCurrent(){
 }
 function hostLibrary(){
   const list = [...S.dishes].sort((a,b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat) || (a.createdAt||0)-(b.createdAt||0));
-  return `<div class="spread" style="margin-bottom:12px"><p class="muted" style="margin:0">共 ${list.length} 道，新一期从这里挑。</p><button type="button" class="btn small" data-act="editDish">＋ 新菜品</button></div>
+  return `<div class="spread" style="margin-bottom:12px"><p class="muted" style="margin:0">共 ${list.length} 道，新一期从这里挑。</p><div class="row"><button type="button" class="btn ghost small" data-act="copyMenuLink">分享菜单</button><button type="button" class="btn small" data-act="editDish">＋ 新菜品</button></div></div>
     <section class="card">${list.length ? list.map(d => `<div class="libitem ${d.active===false?"off":""}">${pic(d)}<div style="min-width:0"><b>${esc(d.name)}</b> <span class="tag">${esc(d.cat||"其他")}</span>${d.active===false?' <span class="tag">已下架</span>':""}
       <div class="muted" style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.desc||"")}</div></div>
       <button type="button" class="btn ghost small" data-act="editDish" data-id="${d.id}">编辑</button></div>`).join("") : `<div class="empty"><h2>菜单库是空的</h2><p>先把拿手菜加进来，配张照片更有食欲。</p></div>`}</section>`;
@@ -1151,7 +1170,13 @@ async function handleAct(act, el, e){
     closeSheet(); return;
   }
   if (act === "role") { S.role = el.dataset.v; window.scrollTo(0,0); render(); }
-  else if (act === "friendTab") { S.friendTab = el.dataset.v; window.scrollTo(0,0); render(); }
+  else if (act === "friendTab") {
+    S.friendTab = el.dataset.v;
+    // 地址栏跟着标签走，这样页面里的 #book / #menu 链接每次都能跳
+    const h = { history: "#history", book: "#book", menu: "#menu" }[S.friendTab];
+    if (h) history.replaceState(null, "", h); else if (["#history","#book","#menu"].includes(location.hash)) history.replaceState(null, "", location.pathname);
+    window.scrollTo(0,0); render();
+  }
   else if (act === "jump") { e.preventDefault(); const t = document.getElementById("cat-" + el.dataset.i); if (t) t.scrollIntoView({ behavior: "smooth" }); }
   else if (act === "inc") { S.cart[el.dataset.id] = (S.cart[el.dataset.id] || 0) + 1; render(); bump(); }
   else if (act === "dec") { const k = el.dataset.id; S.cart[k] = Math.max(0, (S.cart[k] || 0) - 1); if (!S.cart[k]) delete S.cart[k]; render(); }
@@ -1172,6 +1197,8 @@ async function handleAct(act, el, e){
   else if (act === "finalize") finalizeSheet(el.dataset.id);
   else if (act === "addPast") pastSheet();
   else if (act === "book") bookSheet(el.dataset.date);
+  else if (act === "copyMenuLink") copy(`甜水园小饭桌的菜单，看看想吃啥，喜欢就挑个周末来：${SHARE_BASE}#menu`);
+  else if (act === "copyBookLink") copy(`来甜水园小饭桌吃饭吧，挑个周末：${SHARE_BASE}#book`);
   else if (act === "cancelBooking") {
     const b = S.bookings.find(x => x.id === el.dataset.id); if (!b) return;
     if (el.dataset.armed !== "1") { el.dataset.armed = "1"; el.textContent = "再点一次确认取消"; return; }
