@@ -74,9 +74,12 @@ create trigger docs_keep_trash before update on public.docs for each row execute
 
 -- 照片放 Storage：公开 bucket "img"，任何人可读，只有主人能传/改/删；表里存 "sb:<路径>"
 insert into storage.buckets (id, name, public) values ('img', 'img', true) on conflict (id) do update set public = true;
+drop policy if exists "img host select" on storage.objects;
 drop policy if exists "img host insert" on storage.objects;
 drop policy if exists "img host update" on storage.objects;
 drop policy if exists "img host delete" on storage.objects;
+-- 覆盖上传和删除也需要 select 权限
+create policy "img host select" on storage.objects for select to authenticated using (bucket_id = 'img' and public.is_host());
 create policy "img host insert" on storage.objects for insert to authenticated with check (bucket_id = 'img' and public.is_host());
 create policy "img host update" on storage.objects for update to authenticated using (bucket_id = 'img' and public.is_host());
 create policy "img host delete" on storage.objects for delete to authenticated using (bucket_id = 'img' and public.is_host());
