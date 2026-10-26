@@ -751,7 +751,8 @@ function barHTML(){
     <button type="button" class="btn" data-act="submit" ${n ? "" : "disabled"}>${mine ? "更新点单" : "选好了"}</button></div></div>`;
 }
 /* ---------- 约饭 ----------
-   每个周末一拨朋友包场。周六默认开放、周日默认不开，主人在“档期”里逐天开关（slots 里存例外）。
+   每个周末一拨朋友包场。周六周日默认都开放，主人在“档期”里逐天关掉没空的日子（slots 里存例外）。
+   同一个周末只能有一场：约了其中一天，另一天自动不可约（weekendTaken）。
    朋友提交预约（bookings，status: pending → confirmed / declined，或自己 cancelled），
    某天有待确认或已确认的预约、或者主人已经开了那天的菜单，就显示“已被约”。 */
 const LIVE = ["pending", "confirmed"];
@@ -761,7 +762,7 @@ function weekendDates(weeks = 8){
   return out;
 }
 const slotId = date => "s" + date.replace(/-/g, "");
-function slotOpen(date){ const s = S.slots.find(x => x.id === slotId(date)); return s ? !!s.open : dt(date).getDay() === 6; }
+function slotOpen(date){ const s = S.slots.find(x => x.id === slotId(date)); return s ? !!s.open : true; }
 const bookingsOn = date => S.bookings.filter(b => b.date === date && LIVE.includes(b.status)).sort((a,b) => (a.createdAt||0) - (b.createdAt||0));
 const menuOn = date => S.menus.find(m => m.date === date);
 // 同一个周末（周六 + 周日）最多一场饭局：另一天被约了或开了菜单，这天也不能约
@@ -817,11 +818,11 @@ function bookSheet(date){
   }, { form: true });
 }
 function hostSlots(){
-  let html = `<div class="row end" style="margin-bottom:8px"><button type="button" class="btn ghost small" data-act="copyMenuLink">分享菜单</button><button type="button" class="btn small" data-act="copyBookLink">分享约饭链接</button></div><p class="muted" style="margin:0 0 10px;font-size:13px">周六默认开放，周日默认不开。点右边的按钮开关某一天；同一个周末只能约一场。朋友在朋友页的“约饭”里预约。</p><section class="card">`;
+  let html = `<div class="row end" style="margin-bottom:8px"><button type="button" class="btn ghost small" data-act="copyMenuLink">分享菜单</button><button type="button" class="btn small" data-act="copyBookLink">分享约饭链接</button></div><p class="muted" style="margin:0 0 10px;font-size:13px">周六周日默认都开放，点右边的按钮可以把没空的日子关掉。同一个周末只能约一场，约了一天，另一天自动不可约。朋友在朋友页的“约饭”里预约。</p><section class="card">`;
   for (const date of weekendDates()) {
     const open = slotOpen(date), bs = S.bookings.filter(b => b.date === date && b.status !== "cancelled"), menu = menuOn(date);
     html += `<div class="slot ${open ? "" : "off"}"><div class="d"><b>${mmdd(date)}</b><span>${weekday(date)}</span></div>
-      <div class="s">${menu ? `已开菜单` : bs.some(b => b.status === "confirmed") ? `<b>已确认</b>` : bs.some(b => b.status === "pending") ? `<b style="color:var(--accent)">有人想约</b>` : open ? "开放预约" : "不开放"}</div>
+      <div class="s">${menu ? `已开菜单` : bs.some(b => b.status === "confirmed") ? `<b>已确认</b>` : bs.some(b => b.status === "pending") ? `<b style="color:var(--accent)">有人想约</b>` : weekendTaken(weekendPair(date)) ? `${weekday(weekendPair(date))}已有饭局` : open ? "开放预约" : "不开放"}</div>
       <button type="button" class="btn ghost small" data-act="toggleSlot" data-date="${date}">${open ? "设为没空" : "开放"}</button></div>`;
     for (const b of bs) html += `<div class="bk"><div class="spread"><b>${esc(b.name)} · ${b.people || 1} 人</b><span class="tag ${b.status === "confirmed" ? "open" : ""}">${{ pending: "待确认", confirmed: "已确认", declined: "已婉拒" }[b.status] || ""}</span></div>
       ${b.note ? `<span class="muted">${esc(b.note)}</span>` : ""}
