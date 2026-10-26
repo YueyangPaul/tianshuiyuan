@@ -651,11 +651,18 @@ function bannerHTML(){
 }
 
 /* friend */
+// 点菜页只给收到邀请链接（#菜单id）的人看：打开过的邀请记在这台手机上，下次直接打开网址也还在。
+// 没有邀请的人看到的是公开菜单。主人自己预览时照常显示最新一期。
+function invitedIds(){ try { return JSON.parse(ls.get("tsy-invited") || "[]"); } catch(e){ return []; } }
 function currentFriendMenu(){
   const fromHash = location.hash.slice(1);
-  if (fromHash && menuById(fromHash)) return menuById(fromHash);
+  if (fromHash && menuById(fromHash)) {
+    const ids = invitedIds(); if (!ids.includes(fromHash)) ls.set("tsy-invited", JSON.stringify([...ids, fromHash].slice(-20)));
+    return menuById(fromHash);
+  }
   if (S.friendMenuId && menuById(S.friendMenuId)) return menuById(S.friendMenuId);
-  return sortedMenus().find(m => m.status === "open") || sortedMenus().find(m => m.status === "closed");
+  const pool = canManage() ? sortedMenus() : invitedIds().map(menuById).filter(Boolean).sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  return pool.find(m => m.status === "open") || pool.find(m => m.status === "closed" && daysTo(m.date) >= 0);
 }
 function loadCartFor(menu){
   if (S.friendMenuId === menu.id) return;
@@ -720,12 +727,10 @@ function orderHTML(){
 }
 // 还没定饭局时也能分享的整份菜单（#menu），底部引导去约饭
 function libraryHTML(){
-  const m = currentFriendMenu(), live = m && m.status === "open";
   const dishes = S.dishes.filter(d => d.active !== false);
   const groups = [...CATS, "其他"].map(c => [c, dishes.filter(d => c === "其他" ? !CATS.includes(d.cat) : d.cat === c)]).filter(([,l]) => l.length);
   let html = `<section class="cover"><div class="eyebrow"><span class="pill">甜水园小饭桌 · 菜单</span></div>
     <h1>想吃什么，<br>挑个周末来</h1><p class="lede">主人的拿手菜，一共 <b class="num">${dishes.length}</b> 道。看中了就约个周末，开饭前还能再点菜。</p></section>`;
-  if (live) html += `<section class="card spread" style="margin-top:14px"><span><b>${mmdd(m.date)} ${weekday(m.date)}</b> 的点菜已经开了</span><a class="btn small" href="#${m.id}" style="text-decoration:none">去点菜</a></section>`;
   if (!dishes.length) return html + `<div class="empty"><h2>菜单还在准备</h2><p>主人还没把菜加进来，先去“往期回顾”看看之前吃了啥。</p></div>`;
   if (groups.length > 1) html += `<nav class="cats">${groups.map(([c],i) => `<a href="#cat-${i}" data-act="jump" data-i="${i}">${esc(c)}</a>`).join("")}</nav>`;
   groups.forEach(([cat, list], i) => {
