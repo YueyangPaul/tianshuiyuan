@@ -2,7 +2,7 @@
 
 -- 1) 所有数据放在一张表里：col 是类别（菜品 / 每期菜单 / 点单 / 成品照片），data 是内容
 create table if not exists public.docs (
-  col text not null check (col in ('dishes', 'menus', 'orders', 'photos')),
+  col text not null check (col in ('dishes', 'menus', 'orders', 'photos', 'bookings', 'slots')),
   id text not null,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now(),
@@ -27,7 +27,7 @@ language sql stable security definer set search_path = public, auth as $$
      and auth.uid() = (select id from auth.users order by created_at asc limit 1)
 $$;
 
--- 3) 权限：所有人能看；朋友只能提交点单；菜单、菜品、照片只有主人能改
+-- 3) 权限：所有人能看；朋友只能提交点单和预约；菜单、菜品、照片、档期只有主人能改
 alter table public.docs enable row level security;
 drop policy if exists "everyone reads" on public.docs;
 drop policy if exists "guests add orders" on public.docs;
@@ -35,10 +35,10 @@ drop policy if exists "guests edit orders" on public.docs;
 drop policy if exists "host deletes" on public.docs;
 create policy "everyone reads" on public.docs for select using (true);
 create policy "guests add orders" on public.docs for insert
-  with check (col = 'orders' or public.is_host());
+  with check (col in ('orders', 'bookings') or public.is_host());
 create policy "guests edit orders" on public.docs for update
-  using (col = 'orders' or public.is_host())
-  with check (col = 'orders' or public.is_host());
+  using (col in ('orders', 'bookings') or public.is_host())
+  with check (col in ('orders', 'bookings') or public.is_host());
 create policy "host deletes" on public.docs for delete using (public.is_host());
 
 -- 4) 打开实时推送，朋友一提交主人页面马上能看到
@@ -83,3 +83,14 @@ create policy "img host select" on storage.objects for select to authenticated u
 create policy "img host insert" on storage.objects for insert to authenticated with check (bucket_id = 'img' and public.is_host());
 create policy "img host update" on storage.objects for update to authenticated using (bucket_id = 'img' and public.is_host());
 create policy "img host delete" on storage.objects for delete to authenticated using (bucket_id = 'img' and public.is_host());
+
+-- 约饭（2026-10-26 加）：已经建过表的项目跑这段，放开 bookings / slots 两个类别，朋友可以提交预约
+alter table public.docs drop constraint if exists docs_col_check;
+alter table public.docs add constraint docs_col_check check (col in ('dishes', 'menus', 'orders', 'photos', 'bookings', 'slots'));
+drop policy if exists "guests add orders" on public.docs;
+drop policy if exists "guests edit orders" on public.docs;
+create policy "guests add orders" on public.docs for insert
+  with check (col in ('orders', 'bookings') or public.is_host());
+create policy "guests edit orders" on public.docs for update
+  using (col in ('orders', 'bookings') or public.is_host())
+  with check (col in ('orders', 'bookings') or public.is_host());
