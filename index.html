@@ -479,13 +479,25 @@ const Cloud = {
     }
     touched.forEach(c => this.emit(c));
   },
+  // 照片存在行里，一次全拉会有好几 MB，手机网络/微信里容易断。改成每次 15 行分批拉，
+  // 每批 20 秒超时、失败重试两次；拉到哪算哪，下次从断点继续。
   async pull(){
-    let q = this.sb.from("docs").select("col,id,data,updated_at").order("updated_at", { ascending: true }).limit(500);
-    if (this.last) q = q.gt("updated_at", this.last);
-    const { data, error } = await q;
-    if (error) throw error;
-    this.apply(data);
-    if (data.length === 500) return this.pull();
+    const PAGE = 15;
+    for (;;) {
+      let data, err;
+      for (let tries = 0; tries < 3; tries++) {
+        const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 20000);
+        let q = this.sb.from("docs").select("col,id,data,updated_at").order("updated_at", { ascending: true }).limit(PAGE).abortSignal(ac.signal);
+        if (this.last) q = q.gt("updated_at", this.last);
+        try { const r = await q; data = r.data; err = r.error; } catch(e){ err = e; }
+        clearTimeout(timer);
+        if (!err) break;
+        await new Promise(r => setTimeout(r, 800 * (tries + 1)));
+      }
+      if (err) throw err;
+      this.apply(data);
+      if (data.length < PAGE) return;
+    }
   },
   async set(col, id, v){
     const body = { ...v }; delete body.id;
